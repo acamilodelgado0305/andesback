@@ -1,7 +1,13 @@
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
-import studentRoutes from './routes/student.js'; // Importa la ruta
+import StudentRouter from "./routes/studentRouter.js"
+import ProgramRouter from "./routes/programRouter.js"
+import RegistroRouter from "./routes/registroRouter.js"
+import authRouter from './routes/authRouter.js';
+import facturaRouter from './routes/facturaRouter.js'
+import { verifyToken } from './controllers/authController.js'; 
+
 
 const app = express();
 const PORT = 7000;
@@ -22,8 +28,14 @@ app.use((err, req, res, next) => {
     res.status(500).send('Error interno del servidor');
 });
 
-// Rutas protegidas (requieren autenticación)
-app.use('/student', studentRoutes); // Usa el módulo importado
+
+app.use('/auth', authRouter);
+
+app.use('/api', StudentRouter); 
+app.use('/api', ProgramRouter); 
+app.use('/api', RegistroRouter);
+app.use('/api', facturaRouter);
+
 
 // Iniciar el servidor
 app.listen(PORT, () => {
