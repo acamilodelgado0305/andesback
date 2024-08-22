@@ -7,9 +7,9 @@ import {
 } from '../models/studentModel.js';
 
 const createStudentController = async (req, res) => {
-  const { nombre, apellido, email, telefono, fechaNacimiento, programaId, coordinador, ultimoCursoVisto, numeroCedula, modalidadEstudio } = req.body;
+  const { nombre, apellido, email, telefono, fechaNacimiento, programaId, coordinador, ultimoCursoVisto, numeroCedula, modalidadEstudio,fechaGraduacion } = req.body;
   try {
-    const student = await createStudent(nombre, apellido, email, telefono, fechaNacimiento, programaId, coordinador, ultimoCursoVisto, numeroCedula, modalidadEstudio);
+    const student = await createStudent(nombre, apellido, email, telefono, fechaNacimiento, programaId, coordinador, ultimoCursoVisto, numeroCedula, modalidadEstudio,fechaGraduacion);
     res.status(201).json(student);
   } catch (err) {
     console.error('Error creando estudiante', err);
