@@ -7,10 +7,11 @@ import RegistroRouter from "./routes/registroRouter.js"
 import authRouter from './routes/authRouter.js';
 import facturaRouter from './routes/facturaRouter.js'
 import { verifyToken } from './controllers/authController.js'; 
+import dotenv from "dotenv";
 
 
 const app = express();
-const PORT = 7000;
+const PORT = process.env.PORT || 7001;
 
 // Incluye los módulos necesarios para la autenticación
 
