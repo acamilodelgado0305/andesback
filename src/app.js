@@ -18,7 +18,7 @@ const PORT = process.env.PORT || 7001;
 app.use(cookieParser());
 app.use(cors({
     credentials: true,
-    origin: ['http://localhost:5173']
+    origin: ['http://localhost:5173','https://andesfront.onrender.com']
 }));
 app.use(express.json());
 
