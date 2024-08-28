@@ -1,5 +1,6 @@
 // models/invoiceModel.js
 import pool from "../database.js";
+import cron from "node-cron";  // Importar node-cron
 
 // Crear una factura
 const createFactura = async (student_id, program_id, fecha, descripcion) => {
@@ -16,10 +17,10 @@ const createFactura = async (student_id, program_id, fecha, descripcion) => {
 
   const monto = programQuery.rows[0].valor;
 
-  // Insertar la factura
+  // Insertar la factura con el estado inicial en false
   const result = await pool.query(
-    `INSERT INTO facturas (student_id, program_id, fecha, monto, descripcion) 
-      VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+    `INSERT INTO facturas (student_id, program_id, fecha, monto, descripcion, estado) 
+      VALUES ($1, $2, $3, $4, $5, false) RETURNING *`,
     [student_id, program_id, fecha, monto, descripcion]
   );
   return result.rows[0];
@@ -70,10 +71,45 @@ const deleteFactura = async (id) => {
   return result.rows[0];
 };
 
+// Función para generar facturas automáticamente el primer día de cada mes
+const generateMonthlyInvoices = async () => {
+  try {
+    // Obtener todos los estudiantes
+    const studentsQuery = await pool.query("SELECT id FROM estudiantes");
+
+    // Fecha actual formateada para el primer día del mes
+    const currentDate = new Date();
+    const firstDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+
+    // Iterar sobre cada estudiante y crear una factura
+    for (const student of studentsQuery.rows) {
+      const student_id = student.id;
+
+      // Aquí podrías personalizar el program_id y descripcion según tus necesidades
+      const program_id = 1; // Por ejemplo, podrías hacer un query para obtener el program_id relacionado al estudiante
+      const descripcion = 'Factura generada automáticamente para el primer día del mes';
+
+      // Crear la factura
+      await createFactura(student_id, program_id, firstDayOfMonth, descripcion);
+    }
+
+    console.log("Facturas generadas automáticamente para todos los estudiantes.");
+  } catch (error) {
+    console.error('Error generando facturas automáticamente', error);
+  }
+};
+
+// Programar la tarea para que se ejecute el primer día de cada mes a la medianoche
+cron.schedule('0 0 1 * *', () => {
+  console.log('Iniciando generación automática de facturas para el primer día del mes');
+  generateMonthlyInvoices();
+});
+
 export {
   createFactura,
   getFacturas,
   getFacturasById,
   updateFactura,
   deleteFactura,
+  generateMonthlyInvoices 
 };

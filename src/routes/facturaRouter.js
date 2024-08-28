@@ -5,13 +5,15 @@ import {
     getFacturasController,
     getFacturasByIdController,
     updateFacturaController,
-    deleteFacturaController
+    deleteFacturaController,
+    generateMonthlyInvoicesController
 } from '../controllers/facturaController.js';
 
 const router = express.Router();
 
 // Rutas para manejar facturas
 router.post('/invoices', createFacturaController); // Crear una nueva factura
+router.post('/generate-monthly', generateMonthlyInvoicesController);
 router.get('/invoices', getFacturasController); // Obtener todas las facturas
 router.get('/invoices/:id', getFacturasByIdController); // Obtener una factura por su ID
 router.put('/invoices/:id', updateFacturaController); // Actualizar una factura por su ID

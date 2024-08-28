@@ -4,11 +4,12 @@ import {
     getFacturas,
     getFacturasById,
     updateFactura,
-    deleteFactura
+    deleteFactura,
+    generateMonthlyInvoices
   } from '../models/facturaModel.js';
   
   const createFacturaController = async (req, res) => {
-    const { student_id, program_id, fecha,monto, descripcion } = req.body;
+    const { student_id, program_id, fecha, descripcion } = req.body;
   
     // Validar datos
     if (!student_id || !program_id || !fecha) {
@@ -17,13 +18,24 @@ import {
   
     try {
       // Crear la factura
-      const invoice = await createFactura(student_id, program_id, fecha,monto, descripcion);
+      const invoice = await createFactura(student_id, program_id, fecha, descripcion);
       res.status(201).json(invoice);
     } catch (err) {
       console.error('Error creando factura', err);
       res.status(500).json({ error: 'Error creando factura' });
     }
   };
+
+  const generateMonthlyInvoicesController = async (req, res) => {
+    try {
+        await generateMonthlyInvoices();
+        res.status(200).json({ message: 'Facturas generadas automáticamente.' });
+    } catch (err) {
+        console.error('Error generando facturas automáticamente', err);
+        res.status(500).json({ error: 'Error generando facturas automáticamente' });
+    }
+};
+  
   
   
   const getFacturasController = async (req, res) => {
@@ -84,6 +96,7 @@ import {
     getFacturasController,
     getFacturasByIdController,
     updateFacturaController,
-    deleteFacturaController
+    deleteFacturaController,
+    generateMonthlyInvoicesController
   };
   
