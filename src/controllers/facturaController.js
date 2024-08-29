@@ -80,9 +80,9 @@ import {
   
   const updateFacturaController = async (req, res) => {
     const { id } = req.params;
-    const { student_id, program_id, fecha, descripcion } = req.body;
+    const { student_id, program_id, fecha, descripcion, estado } = req.body;
     try {
-      const invoice = await updateFactura(id, student_id, program_id, fecha, descripcion);
+      const invoice = await updateFactura(id, student_id, program_id, fecha, descripcion, estado);
       if (!invoice) {
         return res.status(404).json({ error: 'Factura no encontrada' });
       }

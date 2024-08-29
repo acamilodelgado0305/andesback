@@ -44,7 +44,8 @@ const updateFactura = async (
   student_id,
   program_id,
   fecha,
-  descripcion
+  descripcion,
+  estado
 ) => {
   // Obtener el valor del programa
   const programQuery = await pool.query(
@@ -55,9 +56,9 @@ const updateFactura = async (
 
   const result = await pool.query(
     `UPDATE facturas 
-    SET student_id = $1, program_id = $2, fecha = $3, monto = $4, descripcion = $5 
-    WHERE id = $6 RETURNING *`,
-    [student_id, program_id, fecha, monto, descripcion, id]
+    SET student_id = $1, program_id = $2, fecha = $3, monto = $4, descripcion = $5, estado =$6
+    WHERE id = $7 RETURNING *`,
+    [student_id, program_id, fecha, monto, descripcion, estado, id]
   );
   return result.rows[0];
 };
