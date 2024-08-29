@@ -5,7 +5,8 @@ import {
     getFacturasById,
     updateFactura,
     deleteFactura,
-    generateMonthlyInvoices
+    generateMonthlyInvoices,
+    getFacturasByStudentId
   } from '../models/facturaModel.js';
   
   const createFacturaController = async (req, res) => {
@@ -45,6 +46,21 @@ import {
     } catch (err) {
       console.error('Error obteniendo facturas', err);
       res.status(500).json({ error: 'Error obteniendo facturas' });
+    }
+  };
+
+
+  const getFacturasByStudentIdController = async (req, res) => {
+    const { student_id } = req.params;
+    try {
+      const invoices = await getFacturasByStudentId(student_id);
+      if (invoices.length === 0) {
+        return res.status(404).json({ error: 'No se encontraron facturas para este estudiante' });
+      }
+      res.status(200).json(invoices);
+    } catch (err) {
+      console.error('Error obteniendo facturas del estudiante', err);
+      res.status(500).json({ error: 'Error obteniendo facturas del estudiante' });
     }
   };
   
@@ -97,6 +113,7 @@ import {
     getFacturasByIdController,
     updateFacturaController,
     deleteFacturaController,
-    generateMonthlyInvoicesController
+    generateMonthlyInvoicesController,
+    getFacturasByStudentIdController
   };
   

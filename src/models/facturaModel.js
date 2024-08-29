@@ -71,6 +71,11 @@ const deleteFactura = async (id) => {
   return result.rows[0];
 };
 
+const getFacturasByStudentId = async (student_id) => {
+  const result = await pool.query("SELECT * FROM facturas WHERE student_id = $1", [student_id]);
+  return result.rows;
+};
+
 // Función para generar facturas automáticamente el primer día de cada mes
 const generateMonthlyInvoices = async () => {
   try {
@@ -111,5 +116,6 @@ export {
   getFacturasById,
   updateFactura,
   deleteFactura,
-  generateMonthlyInvoices 
+  generateMonthlyInvoices,
+  getFacturasByStudentId
 };
