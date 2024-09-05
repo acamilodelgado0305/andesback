@@ -15,7 +15,7 @@ const createFactura = async (student_id, program_id, fecha, descripcion) => {
     throw new Error("Programa no encontrado");
   }
 
-  const monto = programQuery.rows[0].valor;
+  const monto = programQuery.rows[0].monto;
 
   // Insertar la factura con el estado inicial en false
   const result = await pool.query(
@@ -52,7 +52,7 @@ const updateFactura = async (
     "SELECT valor FROM programas WHERE id = $1",
     [program_id]
   );
-  const monto = programQuery.rows[0].valor;
+  const monto = programQuery.rows[0].monto;
 
   const result = await pool.query(
     `UPDATE facturas 

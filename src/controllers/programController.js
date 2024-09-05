@@ -8,7 +8,7 @@ import {
 } from '../models/programModel.js';
 
 const createProgramController = async (req, res) => {
-  const { nombre, valor } = req.body;
+  const { nombre, monto } = req.body;
   try {
     const program = await createProgram(nombre, valor);
     res.status(201).json(program);
@@ -46,7 +46,7 @@ const updateProgramController = async (req, res) => {
   const { id } = req.params;
   const { nombre, valor } = req.body;
   try {
-    const program = await updateProgram(id, nombre, valor);
+    const program = await updateProgram(id, nombre, monto);
     if (!program) {
       return res.status(404).json({ error: 'Programa no encontrado' });
     }

@@ -2,7 +2,7 @@
 import pool from '../database.js';
 
 // Crear un programa
-const createProgram = async (nombre, valor) => {
+const createProgram = async (nombre, monto) => {
   const result = await pool.query(
     'INSERT INTO programas (nombre, valor) VALUES ($1, $2) RETURNING *',
     [nombre, valor]
@@ -23,7 +23,7 @@ const getProgramById = async (id) => {
 };
 
 // Actualizar un programa
-const updateProgram = async (id, nombre, valor) => {
+const updateProgram = async (id, nombre, monto) => {
   const result = await pool.query(
     'UPDATE programas SET nombre = $1, valor = $2 WHERE id = $3 RETURNING *',
     [nombre, valor, id]
