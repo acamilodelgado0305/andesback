@@ -5,8 +5,8 @@ import {
     getFacturasById,
     updateFactura,
     deleteFactura,
-    generateMonthlyInvoices,
-    getFacturasByStudentId
+    getFacturasByStudentId,
+    updateEstadoFactura
   } from '../models/facturaModel.js';
   
   const createFacturaController = async (req, res) => {
@@ -27,15 +27,6 @@ import {
     }
   };
 
-  const generateMonthlyInvoicesController = async (req, res) => {
-    try {
-        await generateMonthlyInvoices();
-        res.status(200).json({ message: 'Facturas generadas automáticamente.' });
-    } catch (err) {
-        console.error('Error generando facturas automáticamente', err);
-        res.status(500).json({ error: 'Error generando facturas automáticamente' });
-    }
-};
   
   
   
@@ -92,6 +83,21 @@ import {
       res.status(500).json({ error: 'Error actualizando factura' });
     }
   };
+
+  const updateEstadoFacturaController = async (req, res) => {
+    const { id } = req.params;
+    const { estado } = req.body;
+    try {
+      const invoice = await updateEstadoFactura(id, estado);
+      if (!invoice) {
+        return res.status(404).json({ error: 'Factura no encontrada' });
+      }
+      res.status(200).json(invoice);
+    } catch (err) {
+      console.error('Error actualizando factura', err);
+      res.status(500).json({ error: 'Error actualizando factura' });
+    }
+  };
   
   const deleteFacturaController = async (req, res) => {
     const { id } = req.params;
@@ -113,7 +119,7 @@ import {
     getFacturasByIdController,
     updateFacturaController,
     deleteFacturaController,
-    generateMonthlyInvoicesController,
-    getFacturasByStudentIdController
+    getFacturasByStudentIdController,
+    updateEstadoFacturaController
   };
   

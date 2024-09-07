@@ -10,7 +10,7 @@ import {
 const createProgramController = async (req, res) => {
   const { nombre, monto } = req.body;
   try {
-    const program = await createProgram(nombre, valor);
+    const program = await createProgram(nombre, monto);
     res.status(201).json(program);
   } catch (err) {
     console.error('Error creando programa', err);
@@ -44,7 +44,7 @@ const getProgramByIdController = async (req, res) => {
 
 const updateProgramController = async (req, res) => {
   const { id } = req.params;
-  const { nombre, valor } = req.body;
+  const { nombre, monto } = req.body;
   try {
     const program = await updateProgram(id, nombre, monto);
     if (!program) {
