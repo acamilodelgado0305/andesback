@@ -6,7 +6,8 @@ import {
     updateFactura,
     deleteFactura,
     getFacturasByStudentId,
-    updateEstadoFactura
+    updateEstadoFactura,
+    getTotalFacturasPagadasByStudentId
   } from '../models/facturaModel.js';
   
   const createFacturaController = async (req, res) => {
@@ -112,6 +113,21 @@ import {
       res.status(500).json({ error: 'Error eliminando factura' });
     }
   };
+
+  const getTotalFacturasPagadasByStudentIdController = async (req, res) => {
+    const { student_id } = req.params;
+    try {
+      const totalPagado = await getTotalFacturasPagadasByStudentId(student_id);
+      res.status(200).json({ total_pagado: totalPagado });
+    } catch (err) {
+      console.error('Error obteniendo el total pagado', err);
+      res.status(500).json({ error: 'Error obteniendo el total pagado' });
+    }
+  };
+  
+
+
+
   
   export {
     createFacturaController,
@@ -120,6 +136,7 @@ import {
     updateFacturaController,
     deleteFacturaController,
     getFacturasByStudentIdController,
-    updateEstadoFacturaController
+    updateEstadoFacturaController,
+    getTotalFacturasPagadasByStudentIdController
   };
   

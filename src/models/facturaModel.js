@@ -88,7 +88,15 @@ const getFacturasByStudentId = async (student_id) => {
   return result.rows;
 };
 
-// Función para generar facturas automáticamente el primer día de cada mes
+const getTotalFacturasPagadasByStudentId = async (student_id) => {
+  const result = await pool.query(
+    "SELECT SUM(monto) AS total_pagado FROM facturas WHERE student_id = $1 AND estado = true",
+    [student_id]
+  );
+  
+  // Si no hay facturas pagadas, retornamos 0
+  return result.rows[0].total_pagado || 0;
+};
 
 
 export {
@@ -98,5 +106,6 @@ export {
   updateFactura,
   deleteFactura,
   getFacturasByStudentId,
-  updateEstadoFactura
+  updateEstadoFactura,
+  getTotalFacturasPagadasByStudentId
 };
