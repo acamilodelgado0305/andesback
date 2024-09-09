@@ -4,7 +4,8 @@ import {
   getStudentsController,
   getStudentByIdController,
   updateStudentController,
-  deleteStudentController
+  deleteStudentController,
+  updateEstadoStudentController
 } from '../controllers/studentController.js';
 
 const router = express.Router();
@@ -15,5 +16,6 @@ router.get('/students', getStudentsController); // Obtener todos los estudiantes
 router.get('/students/:id', getStudentByIdController); // Obtener un estudiante por su ID
 router.put('/students/:id', updateStudentController); // Actualizar un estudiante por su ID
 router.delete('/students/:id', deleteStudentController); // Eliminar un estudiante por su ID
+router.put('/students/status/:id', updateEstadoStudentController); 
 
 export default router;

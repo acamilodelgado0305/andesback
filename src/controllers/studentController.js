@@ -3,7 +3,8 @@ import {
   getStudents,
   getStudentById,
   updateStudent,
-  deleteStudent
+  deleteStudent,
+  updateEstadoStudent
 } from '../models/studentModel.js';
 
 const createStudentController = async (req, res) => {
@@ -70,10 +71,26 @@ const deleteStudentController = async (req, res) => {
   }
 };
 
+const updateEstadoStudentController = async (req, res) => {
+  const { id } = req.params;
+  const { estado_matricula } = req.body;
+  try {
+    const student = await updateEstadoStudent(id, estado_matricula);
+    if (!student) {
+      return res.status(404).json({ error: 'Factura no encontrada' });
+    }
+    res.status(200).json(student);
+  } catch (err) {
+    console.error('Error actualizando factura', err);
+    res.status(500).json({ error: 'Error actualizando factura' });
+  }
+};
+
 export {
   createStudentController,
   getStudentsController,
   getStudentByIdController,
   updateStudentController,
-  deleteStudentController
+  deleteStudentController,
+  updateEstadoStudentController
 };

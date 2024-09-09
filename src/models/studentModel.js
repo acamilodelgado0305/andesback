@@ -43,4 +43,15 @@ const deleteStudent = async (id) => {
   return result.rows[0];
 };
 
-export { createStudent, getStudents, getStudentById, updateStudent, deleteStudent };
+
+const updateEstadoStudent = async (id, estado_matricula) => {
+  const result = await pool.query(
+    `UPDATE students 
+    SET estado_matricula = $1
+    WHERE id = $2 RETURNING *`,
+    [estado_matricula, id]
+  );
+  return result.rows[0];
+};
+
+export { createStudent, getStudents, getStudentById, updateStudent, deleteStudent,updateEstadoStudent };
