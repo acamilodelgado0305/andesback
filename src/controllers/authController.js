@@ -3,9 +3,9 @@ import { createUser, getUserByEmail } from '../models/userModel.js';
 import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
 
-dotenv.config(); // Asegúrate de cargar las variables de entorno
+dotenv.config();
 
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secreto_seguro'; // Usa variable de entorno o un valor por defecto
+const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secreto_seguro';
 
 // Registrar usuario
 const registerController = async (req, res) => {
