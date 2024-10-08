@@ -1,13 +1,16 @@
-// controllers/authController.js
 import jwt from 'jsonwebtoken';
 import { createUser, getUserByEmail } from '../models/userModel.js';
 import bcrypt from 'bcryptjs';
+import dotenv from 'dotenv';
+
+dotenv.config(); // Asegúrate de cargar las variables de entorno
+
+const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secreto_seguro'; // Usa variable de entorno o un valor por defecto
 
 // Registrar usuario
 const registerController = async (req, res) => {
   const { email, password } = req.body;
 
-  // Verifica que email y password no estén vacíos
   if (!email || !password) {
     return res.status(400).json({ error: 'Email y contraseña son requeridos' });
   }
@@ -26,8 +29,6 @@ const registerController = async (req, res) => {
   }
 };
 
-
-
 // Iniciar sesión
 const loginController = async (req, res) => {
   const { email, password } = req.body;
@@ -42,28 +43,14 @@ const loginController = async (req, res) => {
       return res.status(400).json({ error: 'Contraseña incorrecta' });
     }
 
-    const token = jwt.sign({ userId: user.id }, 'tu_secreto_jwt', { expiresIn: '1h' });
-    res.cookie('token', token, { httpOnly: true }).json({ message: 'Inicio de sesión exitoso' });
+    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '1h' });
+
+    // Enviar el token en la respuesta para que el frontend lo gestione
+    res.json({ token, message: 'Inicio de sesión exitoso' });
   } catch (err) {
     console.error('Error iniciando sesión', err);
     res.status(500).json({ error: 'Error iniciando sesión' });
   }
 };
 
-// Verificar token JWT
-const verifyToken = (req, res, next) => {
-  const token = req.cookies.token;
-  if (!token) {
-    return res.status(401).json({ error: 'Acceso denegado, no autenticado' });
-  }
-
-  try {
-    const verified = jwt.verify(token, 'tu_secreto_jwt');
-    req.userId = verified.userId;
-    next();
-  } catch (err) {
-    res.status(400).json({ error: 'Token no válido' });
-  }
-};
-
-export { registerController, loginController, verifyToken };
+export { registerController, loginController };
