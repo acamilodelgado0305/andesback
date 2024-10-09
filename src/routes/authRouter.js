@@ -4,7 +4,7 @@ import { registerController, loginController } from '../controllers/authControll
 
 const router = express.Router();
 
-router.post('/register', registerController); // Ruta para registrar un nuevo usuario
-router.post('/login', loginController); // Ruta para iniciar sesión
+router.post('/register', registerController);
+router.post('/login', loginController);
 
 export default router;
