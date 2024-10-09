@@ -6,6 +6,7 @@ import ProgramRouter from "./routes/programRouter.js"
 import RegistroRouter from "./routes/registroRouter.js"
 import authRouter from './routes/authRouter.js';
 import facturaRouter from './routes/facturaRouter.js'
+import subjectRouter from './routes/subjectRoutes.js'
 import { verifyToken } from './controllers/authController.js'; 
 import dotenv from "dotenv";
 
@@ -36,6 +37,7 @@ app.use('/api', StudentRouter);
 app.use('/api', ProgramRouter); 
 app.use('/api', RegistroRouter);
 app.use('/api', facturaRouter);
+app.use('/api', subjectRouter);
 
 
 // Iniciar el servidor
