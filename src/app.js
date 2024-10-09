@@ -5,9 +5,9 @@ import StudentRouter from "./routes/studentRouter.js";
 import ProgramRouter from "./routes/programRouter.js";
 import RegistroRouter from "./routes/registroRouter.js";
 import authRouter from './routes/authRouter.js';
-import facturaRouter from './routes/facturaRouter.js'
+import facturaRouter from './routes/facturaRouter.js';
 import subjectRouter from './routes/subjectRoutes.js'
-import { verifyToken } from './controllers/authController.js'; 
+import verifyToken from './authMiddleware.js';
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -34,16 +34,11 @@ app.use((err, req, res, next) => {
 // Rutas públicas (sin protección)
 app.use('/auth', authRouter);
 
-app.use('/api', StudentRouter); 
-app.use('/api', ProgramRouter); 
-app.use('/api', RegistroRouter);
-app.use('/api', facturaRouter);
-app.use('/api', subjectRouter);
-
-
-// Iniciar el servidor
-app.listen(PORT, () => {
-    console.log(`Servidor en ejecución en http://localhost:${PORT}`);
-});
+// Rutas protegidas (requieren autenticación con token)
+app.use('/api', verifyToken, StudentRouter);
+app.use('/api', verifyToken, ProgramRouter);
+app.use('/api', verifyToken, RegistroRouter);
+app.use('/api', verifyToken, facturaRouter);
+app.use('/api', verifyToken, subjectRouter);
 
 export default app;
