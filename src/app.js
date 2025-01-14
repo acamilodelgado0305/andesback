@@ -35,10 +35,10 @@ app.use((err, req, res, next) => {
 app.use('/auth', authRouter);
 
 // Rutas protegidas (requieren autenticación con token)
-app.use('/api', verifyToken, StudentRouter);
-app.use('/api', verifyToken, ProgramRouter);
-app.use('/api', verifyToken, RegistroRouter);
-app.use('/api', verifyToken, facturaRouter);
-app.use('/api', verifyToken, subjectRouter);
+app.use('/api', StudentRouter);
+app.use('/api',  ProgramRouter);
+app.use('/api', RegistroRouter);
+app.use('/api',  facturaRouter);
+app.use('/api',  subjectRouter);
 
 export default app;
