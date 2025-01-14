@@ -4,9 +4,14 @@ import fs from 'fs';
 
 const uploadStudentsController = async (req, res) => {
     const file = req.file;
+    const { coordinador } = req.body; // Agregar el coordinador desde el cuerpo de la solicitud
 
     if (!file) {
         return res.status(400).json({ error: 'Archivo no proporcionado' });
+    }
+
+    if (!coordinador) {
+        return res.status(400).json({ error: 'Coordinador no proporcionado' });
     }
 
     try {
@@ -44,9 +49,9 @@ const uploadStudentsController = async (req, res) => {
       INSERT INTO students 
       (nombre, apellido, email, tipo_documento, numero_documento, lugar_expedicion, fecha_nacimiento, lugar_nacimiento,
        telefono_llamadas, telefono_whatsapp, horario_estudio, eps, rh, nombre_acudiente, tipo_documento_acudiente,
-       telefono_acudiente, direccion_acudiente, simat, estado_matricula, mensualidad_mes, fecha_inscripcion, activo)
+       telefono_acudiente, direccion_acudiente, simat, estado_matricula, mensualidad_mes, coordinador, fecha_inscripcion, activo)
       VALUES 
-      ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, CURRENT_TIMESTAMP, true)
+      ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, CURRENT_TIMESTAMP, true)
     `;
 
         const client = await pool.connect();
@@ -74,6 +79,7 @@ const uploadStudentsController = async (req, res) => {
                     student.simat,
                     student.estadoMatricula,
                     student.mensualidadMes,
+                    coordinador // Incluido el coordinador aquí
                 ]);
             }
             await client.query('COMMIT');

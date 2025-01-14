@@ -21,15 +21,16 @@ const createUserReg = async (
   direccionAcudiente,
   simat,
   estadoMatricula,
-  mensualidadMes
+  mensualidadMes,
+  coordinador // Agregado coordinador
 ) => {
   const result = await pool.query(
     `INSERT INTO students 
       (nombre, apellido, email, tipo_documento, numero_documento, lugar_expedicion, fecha_nacimiento, lugar_nacimiento, 
        telefono_llamadas, telefono_whatsapp, horario_estudio, eps, rh, nombre_acudiente, tipo_documento_acudiente, 
-       telefono_acudiente, direccion_acudiente, simat, estado_matricula, mensualidad_mes, fecha_inscripcion, activo) 
+       telefono_acudiente, direccion_acudiente, simat, estado_matricula, mensualidad_mes, coordinador, fecha_inscripcion, activo) 
      VALUES 
-      ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, CURRENT_TIMESTAMP, true) 
+      ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, CURRENT_TIMESTAMP, true) 
      RETURNING *`,
     [
       nombre,
@@ -51,7 +52,8 @@ const createUserReg = async (
       direccionAcudiente,
       simat,
       estadoMatricula,
-      mensualidadMes
+      mensualidadMes,
+      coordinador // Incluido coordinador
     ]
   );
   return result.rows[0];
@@ -92,6 +94,7 @@ const updateUserReg = async (
   simat,
   estadoMatricula,
   mensualidadMes,
+  coordinador, // Agregado coordinador
   activo
 ) => {
   const result = await pool.query(
@@ -99,8 +102,9 @@ const updateUserReg = async (
      SET nombre = $1, apellido = $2, email = $3, tipo_documento = $4, numero_documento = $5, lugar_expedicion = $6, 
          fecha_nacimiento = $7, lugar_nacimiento = $8, telefono_llamadas = $9, telefono_whatsapp = $10, horario_estudio = $11, 
          eps = $12, rh = $13, nombre_acudiente = $14, tipo_documento_acudiente = $15, telefono_acudiente = $16, 
-         direccion_acudiente = $17, simat = $18, estado_matricula = $19, mensualidad_mes = $20, activo = $21, updated_at = CURRENT_TIMESTAMP 
-     WHERE id = $22 
+         direccion_acudiente = $17, simat = $18, estado_matricula = $19, mensualidad_mes = $20, coordinador = $21, 
+         activo = $22, updated_at = CURRENT_TIMESTAMP 
+     WHERE id = $23 
      RETURNING *`,
     [
       nombre,
@@ -123,6 +127,7 @@ const updateUserReg = async (
       simat,
       estadoMatricula,
       mensualidadMes,
+      coordinador, // Incluido coordinador
       activo,
       id
     ]
