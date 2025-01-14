@@ -1,14 +1,58 @@
 import pool from '../database.js';
 
 // Crear un estudiante
-const createUserReg = async (nombre, apellido, email, telefono, fechaNacimiento, programaId, coordinador, ultimoCursoVisto, numeroCedula, modalidadEstudio) => {
+const createUserReg = async (
+  nombre,
+  apellido,
+  email,
+  tipoDocumento,
+  numeroDocumento,
+  lugarExpedicion,
+  fechaNacimiento,
+  lugarNacimiento,
+  telefonoLlamadas,
+  telefonoWhatsapp,
+  horarioEstudio,
+  eps,
+  rh,
+  nombreAcudiente,
+  tipoDocumentoAcudiente,
+  telefonoAcudiente,
+  direccionAcudiente,
+  simat,
+  estadoMatricula,
+  mensualidadMes
+) => {
   const result = await pool.query(
     `INSERT INTO students 
-      (nombre, apellido, email, telefono, fecha_nacimiento, programa_id, coordinador, fecha_inscripcion, activo, ultimo_curso_visto, numero_cedula, modalidad_estudio) 
+      (nombre, apellido, email, tipo_documento, numero_documento, lugar_expedicion, fecha_nacimiento, lugar_nacimiento, 
+       telefono_llamadas, telefono_whatsapp, horario_estudio, eps, rh, nombre_acudiente, tipo_documento_acudiente, 
+       telefono_acudiente, direccion_acudiente, simat, estado_matricula, mensualidad_mes, fecha_inscripcion, activo) 
      VALUES 
-      ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, true, $8, $9, $10) 
+      ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, CURRENT_TIMESTAMP, true) 
      RETURNING *`,
-    [nombre, apellido, email, telefono, fechaNacimiento, programaId, coordinador, ultimoCursoVisto, numeroCedula, modalidadEstudio]
+    [
+      nombre,
+      apellido,
+      email,
+      tipoDocumento,
+      numeroDocumento,
+      lugarExpedicion,
+      fechaNacimiento,
+      lugarNacimiento,
+      telefonoLlamadas,
+      telefonoWhatsapp,
+      horarioEstudio,
+      eps,
+      rh,
+      nombreAcudiente,
+      tipoDocumentoAcudiente,
+      telefonoAcudiente,
+      direccionAcudiente,
+      simat,
+      estadoMatricula,
+      mensualidadMes
+    ]
   );
   return result.rows[0];
 };
@@ -26,13 +70,62 @@ const getUserReg = async (id) => {
 };
 
 // Actualizar un estudiante
-const updateUserReg = async (id, nombre, apellido, email, telefono, fechaNacimiento, programaId, coordinador, ultimoCursoVisto, numeroCedula, modalidadEstudio, activo) => {
+const updateUserReg = async (
+  id,
+  nombre,
+  apellido,
+  email,
+  tipoDocumento,
+  numeroDocumento,
+  lugarExpedicion,
+  fechaNacimiento,
+  lugarNacimiento,
+  telefonoLlamadas,
+  telefonoWhatsapp,
+  horarioEstudio,
+  eps,
+  rh,
+  nombreAcudiente,
+  tipoDocumentoAcudiente,
+  telefonoAcudiente,
+  direccionAcudiente,
+  simat,
+  estadoMatricula,
+  mensualidadMes,
+  activo
+) => {
   const result = await pool.query(
     `UPDATE students 
-     SET nombre = $1, apellido = $2, email = $3, telefono = $4, fecha_nacimiento = $5, programa_id = $6, coordinador = $7, ultimo_curso_visto = $8, numero_cedula = $9, modalidad_estudio = $10, activo = $11, updated_at = CURRENT_TIMESTAMP 
-     WHERE id = $12 
+     SET nombre = $1, apellido = $2, email = $3, tipo_documento = $4, numero_documento = $5, lugar_expedicion = $6, 
+         fecha_nacimiento = $7, lugar_nacimiento = $8, telefono_llamadas = $9, telefono_whatsapp = $10, horario_estudio = $11, 
+         eps = $12, rh = $13, nombre_acudiente = $14, tipo_documento_acudiente = $15, telefono_acudiente = $16, 
+         direccion_acudiente = $17, simat = $18, estado_matricula = $19, mensualidad_mes = $20, activo = $21, updated_at = CURRENT_TIMESTAMP 
+     WHERE id = $22 
      RETURNING *`,
-    [nombre, apellido, email, telefono, fechaNacimiento, programaId, coordinador, ultimoCursoVisto, numeroCedula, modalidadEstudio, activo, id]
+    [
+      nombre,
+      apellido,
+      email,
+      tipoDocumento,
+      numeroDocumento,
+      lugarExpedicion,
+      fechaNacimiento,
+      lugarNacimiento,
+      telefonoLlamadas,
+      telefonoWhatsapp,
+      horarioEstudio,
+      eps,
+      rh,
+      nombreAcudiente,
+      tipoDocumentoAcudiente,
+      telefonoAcudiente,
+      direccionAcudiente,
+      simat,
+      estadoMatricula,
+      mensualidadMes,
+      activo,
+      id
+    ]
   );
   return result.rows[0];
 };
