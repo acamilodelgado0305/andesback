@@ -32,7 +32,6 @@ const uploadStudentsController = async (req, res) => {
             lugarNacimiento: row['Lugar Nacimiento'] || null,
             telefonoLlamadas: row['Teléfono Llamadas'] || null,
             telefonoWhatsapp: row['Teléfono Whatsapp'] || null,
-            horarioEstudio: row['Horario Estudio'] || null,
             eps: row['EPS'] || null,
             rh: row['RH'] || null,
             nombreAcudiente: row['Nombre Acudiente'] || null,
@@ -40,19 +39,26 @@ const uploadStudentsController = async (req, res) => {
             telefonoAcudiente: row['Teléfono Acudiente'] || null,
             direccionAcudiente: row['Dirección Acudiente'] || null,
             simat: row['SIMAT'] || null,
-            estadoMatricula: row['Estado Matrícula'] || null,
-            mensualidadMes: row['Mensualidad Mes'] || null,
+            estadoMatricula: row['Estado Matrícula'] === 'true',
+            programa_id: row['Programa ID'] || null
         }));
+
+        // Validar que todos los estudiantes tengan programa_id
+        for (const student of students) {
+            if (!student.programa_id) {
+                return res.status(400).json({ error: 'Falta programa_id para uno o más estudiantes.' });
+            }
+        }
 
         // Insertar los datos en la tabla
         const query = `
-      INSERT INTO students 
-      (nombre, apellido, email, tipo_documento, numero_documento, lugar_expedicion, fecha_nacimiento, lugar_nacimiento,
-       telefono_llamadas, telefono_whatsapp, horario_estudio, eps, rh, nombre_acudiente, tipo_documento_acudiente,
-       telefono_acudiente, direccion_acudiente, simat, estado_matricula, mensualidad_mes, coordinador, fecha_inscripcion, activo)
-      VALUES 
-      ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, CURRENT_TIMESTAMP, true)
-    `;
+            INSERT INTO students 
+            (nombre, apellido, email, tipo_documento, numero_documento, lugar_expedicion, fecha_nacimiento, lugar_nacimiento,
+            telefono_llamadas, telefono_whatsapp, eps, rh, nombre_acudiente, tipo_documento_acudiente,
+            telefono_acudiente, direccion_acudiente, simat, estado_matricula, programa_id, coordinador, fecha_inscripcion, activo)
+            VALUES 
+            ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, CURRENT_TIMESTAMP, true)
+        `;
 
         const client = await pool.connect();
         try {
@@ -69,7 +75,6 @@ const uploadStudentsController = async (req, res) => {
                     student.lugarNacimiento,
                     student.telefonoLlamadas,
                     student.telefonoWhatsapp,
-                    student.horarioEstudio,
                     student.eps,
                     student.rh,
                     student.nombreAcudiente,
@@ -78,8 +83,8 @@ const uploadStudentsController = async (req, res) => {
                     student.direccionAcudiente,
                     student.simat,
                     student.estadoMatricula,
-                    student.mensualidadMes,
-                    coordinador // Incluido el coordinador aquí
+                    student.programa_id,
+                    coordinador
                 ]);
             }
             await client.query('COMMIT');
@@ -99,5 +104,6 @@ const uploadStudentsController = async (req, res) => {
         res.status(500).json({ error: 'Error procesando archivo Excel' });
     }
 };
+
 
 export { uploadStudentsController };

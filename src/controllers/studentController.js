@@ -12,7 +12,6 @@ const createStudentController = async (req, res) => {
     lugarNacimiento,
     telefonoLlamadas,
     telefonoWhatsapp,
-    horarioEstudio,
     eps,
     rh,
     nombreAcudiente,
@@ -21,15 +20,19 @@ const createStudentController = async (req, res) => {
     direccionAcudiente,
     simat,
     estadoMatricula,
-    mensualidadMes
+    programa_id // Agregado programa_id como obligatorio
   } = req.body;
+
+  if (!programa_id) {
+    return res.status(400).json({ error: 'El campo programa_id es obligatorio' });
+  }
 
   try {
     const result = await pool.query(
       `INSERT INTO students 
         (nombre, apellido, email, tipo_documento, numero_documento, lugar_expedicion, fecha_nacimiento, lugar_nacimiento, 
-         telefono_llamadas, telefono_whatsapp, horario_estudio, eps, rh, nombre_acudiente, tipo_documento_acudiente, 
-         telefono_acudiente, direccion_acudiente, simat, estado_matricula, mensualidad_mes, fecha_inscripcion, activo) 
+         telefono_llamadas, telefono_whatsapp, eps, rh, nombre_acudiente, tipo_documento_acudiente, 
+         telefono_acudiente, direccion_acudiente, simat, estado_matricula, programa_id, fecha_inscripcion, activo) 
        VALUES 
         ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, CURRENT_TIMESTAMP, true) 
        RETURNING *`,
@@ -44,7 +47,6 @@ const createStudentController = async (req, res) => {
         lugarNacimiento,
         telefonoLlamadas,
         telefonoWhatsapp,
-        horarioEstudio,
         eps,
         rh,
         nombreAcudiente,
@@ -53,7 +55,7 @@ const createStudentController = async (req, res) => {
         direccionAcudiente,
         simat,
         estadoMatricula,
-        mensualidadMes
+        programa_id
       ]
     );
     res.status(201).json(result.rows[0]);
@@ -100,7 +102,6 @@ const updateStudentController = async (req, res) => {
     lugarNacimiento,
     telefonoLlamadas,
     telefonoWhatsapp,
-    horarioEstudio,
     eps,
     rh,
     nombreAcudiente,
@@ -109,7 +110,7 @@ const updateStudentController = async (req, res) => {
     direccionAcudiente,
     simat,
     estadoMatricula,
-    mensualidadMes,
+    programa_id, // Agregado programa_id
     activo
   } = req.body;
 
@@ -117,10 +118,10 @@ const updateStudentController = async (req, res) => {
     const result = await pool.query(
       `UPDATE students 
        SET nombre = $1, apellido = $2, email = $3, tipo_documento = $4, numero_documento = $5, lugar_expedicion = $6, 
-           fecha_nacimiento = $7, lugar_nacimiento = $8, telefono_llamadas = $9, telefono_whatsapp = $10, horario_estudio = $11, 
-           eps = $12, rh = $13, nombre_acudiente = $14, tipo_documento_acudiente = $15, telefono_acudiente = $16, 
-           direccion_acudiente = $17, simat = $18, estado_matricula = $19, mensualidad_mes = $20, activo = $21, updated_at = CURRENT_TIMESTAMP 
-       WHERE id = $22 
+           fecha_nacimiento = $7, lugar_nacimiento = $8, telefono_llamadas = $9, telefono_whatsapp = $10, 
+           eps = $11, rh = $12, nombre_acudiente = $13, tipo_documento_acudiente = $14, telefono_acudiente = $15, 
+           direccion_acudiente = $16, simat = $17, estado_matricula = $18, programa_id = $19, activo = $20, updated_at = CURRENT_TIMESTAMP 
+       WHERE id = $21 
        RETURNING *`,
       [
         nombre,
@@ -133,7 +134,6 @@ const updateStudentController = async (req, res) => {
         lugarNacimiento,
         telefonoLlamadas,
         telefonoWhatsapp,
-        horarioEstudio,
         eps,
         rh,
         nombreAcudiente,
@@ -142,7 +142,7 @@ const updateStudentController = async (req, res) => {
         direccionAcudiente,
         simat,
         estadoMatricula,
-        mensualidadMes,
+        programa_id,
         activo,
         id
       ]
@@ -174,14 +174,14 @@ const deleteStudentController = async (req, res) => {
 
 const updateEstadoStudentController = async (req, res) => {
   const { id } = req.params;
-  const { estado_matricula, mensualidad_mes } = req.body;
+  const { estado_matricula } = req.body;
   try {
     const result = await pool.query(
       `UPDATE students 
-       SET estado_matricula = $1, mensualidad_mes = $2
-       WHERE id = $3 
+       SET estado_matricula = $1
+       WHERE id = $2 
        RETURNING *`,
-      [estado_matricula, mensualidad_mes, id]
+      [estado_matricula, id]
     );
 
     if (result.rows.length === 0) {
