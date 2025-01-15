@@ -20,7 +20,8 @@ const createStudentController = async (req, res) => {
     direccionAcudiente,
     simat,
     estadoMatricula,
-    programa_id // Agregado programa_id como obligatorio
+    programa_id,
+    coordinador // Nuevo campo agregado
   } = req.body;
 
   if (!programa_id) {
@@ -32,9 +33,9 @@ const createStudentController = async (req, res) => {
       `INSERT INTO students 
         (nombre, apellido, email, tipo_documento, numero_documento, lugar_expedicion, fecha_nacimiento, lugar_nacimiento, 
          telefono_llamadas, telefono_whatsapp, eps, rh, nombre_acudiente, tipo_documento_acudiente, 
-         telefono_acudiente, direccion_acudiente, simat, estado_matricula, programa_id, fecha_inscripcion, activo) 
+         telefono_acudiente, direccion_acudiente, simat, estado_matricula, programa_id, coordinador, fecha_inscripcion, activo) 
        VALUES 
-        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, CURRENT_TIMESTAMP, true) 
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, CURRENT_TIMESTAMP, true) 
        RETURNING *`,
       [
         nombre,
@@ -55,7 +56,8 @@ const createStudentController = async (req, res) => {
         direccionAcudiente,
         simat,
         estadoMatricula,
-        programa_id
+        programa_id,
+        coordinador // Nuevo valor agregado al array
       ]
     );
     res.status(201).json(result.rows[0]);
