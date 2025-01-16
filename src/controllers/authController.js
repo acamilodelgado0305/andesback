@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import { createUser, getUserByEmail } from '../models/userModel.js';
 import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
+import pool from '../database.js'; // Conexión a la base de datos
 
 dotenv.config();
 
@@ -53,4 +54,27 @@ const loginController = async (req, res) => {
   }
 };
 
-export { registerController, loginController };
+
+const getUserByIdController = async (req, res) => {
+  const { id } = req.params;
+
+  if (!id) {
+    return res.status(400).json({ error: 'El ID del usuario es requerido' });
+  }
+
+  try {
+    const result = await pool.query('SELECT id, email,name, created_at, updated_at FROM users WHERE id = $1', [id]);
+    const user = result.rows[0];
+
+    if (!user) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    res.json(user);
+  } catch (err) {
+    console.error('Error obteniendo usuario por ID', err);
+    res.status(500).json({ error: 'Error obteniendo usuario por ID' });
+  }
+};
+
+export { registerController, loginController, getUserByIdController};
