@@ -20,4 +20,4 @@ router.delete('/students/:id', deleteStudentController); // Eliminar un estudian
 router.put('/students/status_matricula/:id', updateEstadoStudentController);
 router.post('/upload-students', upload.single('file'), uploadStudentsController);
 
-export default router;
+export default router; 

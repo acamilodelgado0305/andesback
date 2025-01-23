@@ -21,7 +21,8 @@ const createStudentController = async (req, res) => {
     simat,
     estadoMatricula,
     programa_id,
-    coordinador // Nuevo campo agregado
+    coordinador,
+    modalidad_estudio, // Nuevo campo
   } = req.body;
 
   if (!programa_id) {
@@ -33,9 +34,10 @@ const createStudentController = async (req, res) => {
       `INSERT INTO students 
         (nombre, apellido, email, tipo_documento, numero_documento, lugar_expedicion, fecha_nacimiento, lugar_nacimiento, 
          telefono_llamadas, telefono_whatsapp, eps, rh, nombre_acudiente, tipo_documento_acudiente, 
-         telefono_acudiente, direccion_acudiente, simat, estado_matricula, programa_id, coordinador, fecha_inscripcion, activo) 
+         telefono_acudiente, direccion_acudiente, simat, estado_matricula, programa_id, coordinador, modalidad_estudio, 
+         fecha_inscripcion, activo) 
        VALUES 
-        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, CURRENT_TIMESTAMP, true) 
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, CURRENT_TIMESTAMP, true) 
        RETURNING *`,
       [
         nombre,
@@ -57,7 +59,8 @@ const createStudentController = async (req, res) => {
         simat,
         estadoMatricula,
         programa_id,
-        coordinador // Nuevo valor agregado al array
+        coordinador,
+        modalidad_estudio, // Nuevo valor agregado al array
       ]
     );
     res.status(201).json(result.rows[0]);
@@ -66,6 +69,7 @@ const createStudentController = async (req, res) => {
     res.status(500).json({ error: 'Error creando estudiante' });
   }
 };
+
 
 const getStudentsController = async (req, res) => {
   try {
@@ -112,18 +116,75 @@ const updateStudentController = async (req, res) => {
     direccionAcudiente,
     simat,
     estadoMatricula,
-    programa_id, // Agregado programa_id
+    programa_id,
+    coordinador,
     activo
   } = req.body;
 
+  // Validación del ID
+  if (!id || isNaN(id)) {
+    return res.status(400).json({ error: 'ID de estudiante inválido' });
+  }
+
+  // Validaciones básicas de campos requeridos
+  if (!nombre || !apellido || !email || !tipoDocumento || !numeroDocumento) {
+    return res.status(400).json({ 
+      error: 'Los campos nombre, apellido, email, tipo de documento y número de documento son obligatorios' 
+    });
+  }
+
+  // Validación básica de email
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({ error: 'Formato de email inválido' });
+  }
+
   try {
+    // Primero verificamos si el estudiante existe
+    const existingStudent = await pool.query(
+      'SELECT * FROM students WHERE id = $1',
+      [id]
+    );
+
+    if (existingStudent.rows.length === 0) {
+      return res.status(404).json({ error: 'Estudiante no encontrado' });
+    }
+
+    // Verificamos si el email ya está en uso por otro estudiante
+    const emailCheck = await pool.query(
+      'SELECT * FROM students WHERE email = $1 AND id != $2',
+      [email, id]
+    );
+
+    if (emailCheck.rows.length > 0) {
+      return res.status(400).json({ error: 'El email ya está en uso por otro estudiante' });
+    }
+
     const result = await pool.query(
       `UPDATE students 
-       SET nombre = $1, apellido = $2, email = $3, tipo_documento = $4, numero_documento = $5, lugar_expedicion = $6, 
-           fecha_nacimiento = $7, lugar_nacimiento = $8, telefono_llamadas = $9, telefono_whatsapp = $10, 
-           eps = $11, rh = $12, nombre_acudiente = $13, tipo_documento_acudiente = $14, telefono_acudiente = $15, 
-           direccion_acudiente = $16, simat = $17, estado_matricula = $18, programa_id = $19, activo = $20, updated_at = CURRENT_TIMESTAMP 
-       WHERE id = $21 
+       SET nombre = $1, 
+           apellido = $2, 
+           email = $3, 
+           tipo_documento = $4, 
+           numero_documento = $5, 
+           lugar_expedicion = $6, 
+           fecha_nacimiento = $7, 
+           lugar_nacimiento = $8, 
+           telefono_llamadas = $9, 
+           telefono_whatsapp = $10, 
+           eps = $11, 
+           rh = $12, 
+           nombre_acudiente = $13, 
+           tipo_documento_acudiente = $14, 
+           telefono_acudiente = $15, 
+           direccion_acudiente = $16, 
+           simat = $17, 
+           estado_matricula = $18, 
+           programa_id = $19,
+           coordinador = $20,
+           activo = $21,
+           updated_at = CURRENT_TIMESTAMP 
+       WHERE id = $22 
        RETURNING *`,
       [
         nombre,
@@ -145,18 +206,22 @@ const updateStudentController = async (req, res) => {
         simat,
         estadoMatricula,
         programa_id,
+        coordinador,
         activo,
         id
       ]
     );
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Estudiante no encontrado' });
-    }
-    res.status(200).json(result.rows[0]);
+    res.status(200).json({
+      mensaje: 'Estudiante actualizado exitosamente',
+      estudiante: result.rows[0]
+    });
   } catch (err) {
-    console.error('Error actualizando estudiante', err);
-    res.status(500).json({ error: 'Error actualizando estudiante' });
+    console.error('Error actualizando estudiante:', err);
+    res.status(500).json({ 
+      error: 'Error interno del servidor al actualizar el estudiante',
+      detalles: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
   }
 };
 
