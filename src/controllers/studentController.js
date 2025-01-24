@@ -118,7 +118,9 @@ const updateStudentController = async (req, res) => {
     estadoMatricula,
     programa_id,
     coordinador,
-    activo
+    activo,
+    modalidad_estudio, // Nuevo campo agregado
+    ultimo_curso_visto // Campo recientemente agregado
   } = req.body;
 
   // Validación del ID
@@ -128,8 +130,8 @@ const updateStudentController = async (req, res) => {
 
   // Validaciones básicas de campos requeridos
   if (!nombre || !apellido || !email || !tipoDocumento || !numeroDocumento) {
-    return res.status(400).json({ 
-      error: 'Los campos nombre, apellido, email, tipo de documento y número de documento son obligatorios' 
+    return res.status(400).json({
+      error: 'Los campos nombre, apellido, email, tipo de documento y número de documento son obligatorios'
     });
   }
 
@@ -183,8 +185,10 @@ const updateStudentController = async (req, res) => {
            programa_id = $19,
            coordinador = $20,
            activo = $21,
+           modalidad_estudio = $22, 
+           ultimo_curso_visto = $23, -- Nuevo campo agregado
            updated_at = CURRENT_TIMESTAMP 
-       WHERE id = $22 
+       WHERE id = $24 
        RETURNING *`,
       [
         nombre,
@@ -208,6 +212,8 @@ const updateStudentController = async (req, res) => {
         programa_id,
         coordinador,
         activo,
+        modalidad_estudio, // Nuevo valor
+        ultimo_curso_visto, // Nuevo valor
         id
       ]
     );
@@ -218,12 +224,14 @@ const updateStudentController = async (req, res) => {
     });
   } catch (err) {
     console.error('Error actualizando estudiante:', err);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Error interno del servidor al actualizar el estudiante',
       detalles: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
 };
+
+
 
 const deleteStudentController = async (req, res) => {
   const { id } = req.params;
