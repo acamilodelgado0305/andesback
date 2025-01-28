@@ -1,11 +1,16 @@
 import pool from "../database.js";
 import bcrypt from "bcryptjs";
 
-const createUser = async (email, password) => {
-  console.log("Password received in createUser:", password); // Añadir log aquí
+
+const createUser = async (email, password, name) => {
+  console.log("Password received in createUser:", password);
 
   if (!password) {
     throw new Error("La contraseña no puede ser undefined");
+  }
+  
+  if (!name) {
+    throw new Error("El nombre no puede ser undefined");
   }
 
   const saltRounds = 10;
@@ -13,16 +18,16 @@ const createUser = async (email, password) => {
   const hashedPassword = await bcrypt.hash(password, saltRounds);
 
   const result = await pool.query(
-    'INSERT INTO users (email, password) VALUES ($1, $2) RETURNING email, password',
-    [email, hashedPassword]
+    'INSERT INTO users (email, password, name) VALUES ($1, $2, $3) RETURNING email, password, name',
+    [email, hashedPassword, name]
   );
 
   return {
     email: result.rows[0].email,
-    password: result.rows[0].password
+    password: result.rows[0].password,
+    name: result.rows[0].name
   };
 };
-
   
   
 

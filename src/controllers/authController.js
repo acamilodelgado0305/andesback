@@ -10,10 +10,12 @@ const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secreto_seguro';
 
 // Registrar usuario
 const registerController = async (req, res) => {
-  const { email, password } = req.body;
+  const { email, password, name } = req.body;
 
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Email y contraseña son requeridos' });
+  if (!email || !password || !name) {
+    return res.status(400).json({ 
+      error: 'Email, contraseña y nombre son requeridos' 
+    });
   }
 
   try {
@@ -22,7 +24,7 @@ const registerController = async (req, res) => {
       return res.status(400).json({ error: 'El usuario ya existe' });
     }
 
-    const user = await createUser(email, password);
+    const user = await createUser(email, password, name);
     res.status(201).json(user);
   } catch (err) {
     console.error('Error registrando usuario', err);
