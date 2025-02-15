@@ -1,43 +1,136 @@
 import pool from '../database.js';
 
 const createStudentController = async (req, res) => {
-  const {
-    nombre,
-    apellido,
-    email,
-    tipoDocumento,
-    numeroDocumento,
-    lugarExpedicion,
-    fechaNacimiento,
-    lugarNacimiento,
-    telefonoLlamadas,
-    telefonoWhatsapp,
-    eps,
-    rh,
-    nombreAcudiente,
-    tipoDocumentoAcudiente,
-    telefonoAcudiente,
-    direccionAcudiente,
-    simat,
-    estadoMatricula,
-    programa_id,
-    coordinador,
-    modalidad_estudio, // Nuevo campo
-  } = req.body;
-
-  if (!programa_id) {
-    return res.status(400).json({ error: 'El campo programa_id es obligatorio' });
-  }
-
   try {
+    const {
+      nombre,
+      apellido,
+      email,
+      tipoDocumento,
+      numeroDocumento,
+      lugarExpedicion,
+      fechaNacimiento,
+      lugarNacimiento,
+      telefonoLlamadas,
+      telefonoWhatsapp,
+      eps,
+      rh,
+      nombreAcudiente,
+      tipoDocumentoAcudiente,
+      telefonoAcudiente,
+      direccionAcudiente,
+      simat,
+      estadoMatricula,
+      programa_id,
+      coordinador,
+      modalidad_estudio,
+    } = req.body;
+
+    // Validación de campos obligatorios
+    const camposObligatorios = {
+      nombre,
+      apellido,
+      email,
+      tipoDocumento,
+      numeroDocumento,
+      programa_id,
+      estadoMatricula,
+      modalidad_estudio
+    };
+
+    for (const [campo, valor] of Object.entries(camposObligatorios)) {
+      if (!valor) {
+        return res.status(400).json({
+          error: `El campo ${campo} es obligatorio`,
+          campo
+        });
+      }
+    }
+
+    // Validación de formato de email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        error: "Formato de email inválido",
+        campo: "email"
+      });
+    }
+
+    // Validación de fecha de nacimiento
+    if (fechaNacimiento) {
+      const fechaNacimientoDate = new Date(fechaNacimiento);
+      if (isNaN(fechaNacimientoDate.getTime())) {
+        return res.status(400).json({
+          error: "Formato de fecha de nacimiento inválido",
+          campo: "fechaNacimiento"
+        });
+      }
+
+      // Validar que la fecha no sea futura
+      if (fechaNacimientoDate > new Date()) {
+        return res.status(400).json({
+          error: "La fecha de nacimiento no puede ser futura",
+          campo: "fechaNacimiento"
+        });
+      }
+    }
+
+    // Validación de teléfonos
+    const telefonos = {
+      telefonoLlamadas,
+      telefonoWhatsapp,
+      telefonoAcudiente
+    };
+
+    for (const [campo, telefono] of Object.entries(telefonos)) {
+      if (telefono && !/^\d{10}$/.test(telefono)) {
+        return res.status(400).json({
+          error: "El teléfono debe contener 10 dígitos numéricos",
+          campo
+        });
+      }
+    }
+
+    // Validación de tipo de documento
+    const tiposDocumentosValidos = ['CC', 'TI', 'CE', 'PA'];
+    if (!tiposDocumentosValidos.includes(tipoDocumento)) {
+      return res.status(400).json({
+        error: "Tipo de documento inválido",
+        campo: "tipoDocumento",
+        tiposValidos: tiposDocumentosValidos
+      });
+    }
+
+    // Validación de RH
+    const rhValidos = ['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-'];
+    if (rh && !rhValidos.includes(rh)) {
+      return res.status(400).json({
+        error: "Tipo de RH inválido",
+        campo: "rh",
+        tiposValidos: rhValidos
+      });
+    }
+
+    // Validación de estado de matrícula
+    const estadosValidos = ['PENDIENTE', 'MATRICULADO', 'RETIRADO'];
+    if (!estadosValidos.includes(estadoMatricula)) {
+      return res.status(400).json({
+        error: "Estado de matrícula inválido",
+        campo: "estadoMatricula",
+        estadosValidos
+      });
+    }
+
     const result = await pool.query(
       `INSERT INTO students 
-        (nombre, apellido, email, tipo_documento, numero_documento, lugar_expedicion, fecha_nacimiento, lugar_nacimiento, 
-         telefono_llamadas, telefono_whatsapp, eps, rh, nombre_acudiente, tipo_documento_acudiente, 
-         telefono_acudiente, direccion_acudiente, simat, estado_matricula, programa_id, coordinador, modalidad_estudio, 
-         fecha_inscripcion, activo) 
+        (nombre, apellido, email, tipo_documento, numero_documento, lugar_expedicion, 
+         fecha_nacimiento, lugar_nacimiento, telefono_llamadas, telefono_whatsapp, 
+         eps, rh, nombre_acudiente, tipo_documento_acudiente, telefono_acudiente, 
+         direccion_acudiente, simat, estado_matricula, programa_id, coordinador, 
+         modalidad_estudio, fecha_inscripcion, activo) 
        VALUES 
-        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, CURRENT_TIMESTAMP, true) 
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 
+         $16, $17, $18, $19, $20, $21, CURRENT_TIMESTAMP, true) 
        RETURNING *`,
       [
         nombre,
@@ -60,15 +153,44 @@ const createStudentController = async (req, res) => {
         estadoMatricula,
         programa_id,
         coordinador,
-        modalidad_estudio, // Nuevo valor agregado al array
+        modalidad_estudio,
       ]
     );
-    res.status(201).json(result.rows[0]);
+
+    return res.status(201).json({
+      mensaje: "Estudiante creado exitosamente",
+      data: result.rows[0]
+    });
+
   } catch (err) {
-    console.error('Error creando estudiante', err);
-    res.status(500).json({ error: 'Error creando estudiante' });
+    console.error('Error en createStudentController:', err);
+
+    // Manejo de errores específicos de PostgreSQL
+    if (err.code === '23505') {
+      // Violación de restricción única
+      return res.status(409).json({
+        error: "Ya existe un estudiante con este email o número de documento",
+        detalles: err.detail
+      });
+    }
+
+    if (err.code === '23503') {
+      // Violación de llave foránea
+      return res.status(400).json({
+        error: "El programa_id especificado no existe",
+        detalles: err.detail
+      });
+    }
+
+    // Error por defecto
+    return res.status(500).json({
+      error: "Error interno del servidor",
+      mensaje: "Ocurrió un error al crear el estudiante"
+    });
   }
 };
+
+export default createStudentController;
 
 
 const getStudentsController = async (req, res) => {
