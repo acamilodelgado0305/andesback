@@ -190,7 +190,7 @@ const createStudentController = async (req, res) => {
   }
 };
 
-export default createStudentController;
+
 
 
 const getStudentsController = async (req, res) => {
