@@ -4,68 +4,61 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Nuevo Usuario Registrado</title>
+    <title>Confirmación de Pago</title>
     <style>
         body {
             font-family: Arial, sans-serif;
             color: #333;
+            margin: 0;
+            padding: 0;
+            background-color: #f9f9f9;
         }
 
         .container {
             width: 80%;
-            margin: 0 auto;
+            margin: 20px auto;
+            background-color: #fff;
             padding: 20px;
+            border-radius: 8px;
             border: 1px solid #ddd;
-            border-radius: 5px;
-            background-color: #f9f9f9;
         }
 
         h1 {
             color: #007BFF;
         }
 
-        ul {
-            list-style-type: none;
-            padding: 0;
-        }
-
-        li {
-            margin: 10px 0;
-        }
-
-        .logo {
-            text-align: center;
-            margin-bottom: 20px;
-        }
-
-        .logo img {
-            max-width: 50%;
-            height: auto;
+        p {
+            font-size: 16px;
         }
 
         .footer {
             margin-top: 20px;
-            font-size: 0.8em;
+            font-size: 12px;
+            text-align: center;
             color: #777;
         }
     </style>
 </head>
 
 <body>
+
     <div class="container">
-        <div class="logo">
-            <img src="https://res.cloudinary.com/dybws2ubw/image/upload/v1724197589/LOGO_qgczyj.png" alt="Lanet Logo">
-        </div>
-        <h1>Nuevo Usuario Registrado</h1>
-        <p>Se ha registrado un nuevo usuario:</p>
+        <h1>Factura Pagada con Éxito</h1>
+        <p>Estimado/a {{student_name}},</p>
+        <p>Nos complace informarte que tu factura ha sido pagada con éxito.</p>
+        <h3>Detalles de la factura:</h3>
         <ul>
-            <li><strong>Nombre de usuario:</strong> {{username}}</li>
-            <li><strong>Email:</strong> {{email}}</li>
+            <li><strong>Fecha de la factura:</strong> {{invoice_date}}</li>
+            <li><strong>Descripción:</strong> {{description}}</li>
+            <li><strong>Importe Total:</strong> ${{invoice_amount}}</li>
+            <li><strong>Estado de la factura:</strong> {{invoice_status}}</li>
         </ul>
+        <p>Si tienes alguna pregunta o necesitas más información, no dudes en contactarnos.</p>
         <div class="footer">
-            <p>Gracias por usar nuestro servicio.</p>
+            <p>Gracias por elegirnos. </p>
         </div>
     </div>
+
 </body>
 
 </html>
