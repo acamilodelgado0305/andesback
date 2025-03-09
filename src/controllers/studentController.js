@@ -20,13 +20,13 @@ const createStudentController = async (req, res) => {
     direccionAcudiente,
     simat,
     estadoMatricula,
-    programa_id,
+    programa_nombre,
     coordinador,
     modalidad_estudio, // Nuevo campo
   } = req.body;
 
-  if (!programa_id) {
-    return res.status(400).json({ error: 'El campo programa_id es obligatorio' });
+  if (!programa_nombre) {
+    return res.status(400).json({ error: 'El campo programa_nombre es obligatorio' });
   }
 
   try {
@@ -34,7 +34,7 @@ const createStudentController = async (req, res) => {
       `INSERT INTO students 
         (nombre, apellido, email, tipo_documento, numero_documento, lugar_expedicion, fecha_nacimiento, lugar_nacimiento, 
          telefono_llamadas, telefono_whatsapp, eps, rh, nombre_acudiente, tipo_documento_acudiente, 
-         telefono_acudiente, direccion_acudiente, simat, estado_matricula, programa_id, coordinador, modalidad_estudio, 
+         telefono_acudiente, direccion_acudiente, simat, estado_matricula, programa_nombre, coordinador, modalidad_estudio, 
          fecha_inscripcion, activo) 
        VALUES 
         ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, CURRENT_TIMESTAMP, true) 
@@ -58,7 +58,7 @@ const createStudentController = async (req, res) => {
         direccionAcudiente,
         simat,
         estadoMatricula,
-        programa_id,
+        programa_nombre,
         coordinador,
         modalidad_estudio, // Nuevo valor agregado al array
       ]
@@ -116,11 +116,12 @@ const updateStudentController = async (req, res) => {
     direccionAcudiente,
     simat,
     estadoMatricula,
-    programa_id,
+    programa_nombre,
     coordinador,
     activo,
-    modalidad_estudio, // Nuevo campo agregado
-    ultimo_curso_visto // Campo recientemente agregado
+    modalidad_estudio,
+    ultimo_curso_visto,
+    matricula
   } = req.body;
 
   // Validación del ID
@@ -128,7 +129,6 @@ const updateStudentController = async (req, res) => {
     return res.status(400).json({ error: 'ID de estudiante inválido' });
   }
 
-  // Validaciones básicas de campos requeridos
   if (!nombre || !apellido || !email || !tipoDocumento || !numeroDocumento) {
     return res.status(400).json({
       error: 'Los campos nombre, apellido, email, tipo de documento y número de documento son obligatorios'
@@ -142,17 +142,14 @@ const updateStudentController = async (req, res) => {
   }
 
   try {
-    // Primero verificamos si el estudiante existe
-    const existingStudent = await pool.query(
-      'SELECT * FROM students WHERE id = $1',
-      [id]
-    );
+    // Verificar si el estudiante existe
+    const existingStudent = await pool.query('SELECT * FROM students WHERE id = $1', [id]);
 
     if (existingStudent.rows.length === 0) {
       return res.status(404).json({ error: 'Estudiante no encontrado' });
     }
 
-    // Verificamos si el email ya está en uso por otro estudiante
+    // Verificar si el email ya está en uso por otro estudiante
     const emailCheck = await pool.query(
       'SELECT * FROM students WHERE email = $1 AND id != $2',
       [email, id]
@@ -162,6 +159,10 @@ const updateStudentController = async (req, res) => {
       return res.status(400).json({ error: 'El email ya está en uso por otro estudiante' });
     }
 
+
+    
+
+    // Actualizar el estudiante en la base de datos
     const result = await pool.query(
       `UPDATE students 
        SET nombre = $1, 
@@ -182,13 +183,14 @@ const updateStudentController = async (req, res) => {
            direccion_acudiente = $16, 
            simat = $17, 
            estado_matricula = $18, 
-           programa_id = $19,
+           programa_nombre = $19,
            coordinador = $20,
            activo = $21,
            modalidad_estudio = $22, 
-           ultimo_curso_visto = $23, -- Nuevo campo agregado
+           ultimo_curso_visto = $23, 
+           matricula = $24,  -- 🔥 Se actualiza el valor dinámico de matrícula
            updated_at = CURRENT_TIMESTAMP 
-       WHERE id = $24 
+       WHERE id = $25 
        RETURNING *`,
       [
         nombre,
@@ -209,11 +211,12 @@ const updateStudentController = async (req, res) => {
         direccionAcudiente,
         simat,
         estadoMatricula,
-        programa_id,
+        programa_nombre,
         coordinador,
         activo,
-        modalidad_estudio, // Nuevo valor
-        ultimo_curso_visto, // Nuevo valor
+        modalidad_estudio,
+        ultimo_curso_visto,
+        matricula, 
         id
       ]
     );
@@ -230,6 +233,7 @@ const updateStudentController = async (req, res) => {
     });
   }
 };
+
 
 
 
