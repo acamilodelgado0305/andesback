@@ -149,18 +149,6 @@ const updateStudentController = async (req, res) => {
       return res.status(404).json({ error: 'Estudiante no encontrado' });
     }
 
-    // Verificar si el email ya está en uso por otro estudiante
-    const emailCheck = await pool.query(
-      'SELECT * FROM students WHERE email = $1 AND id != $2',
-      [email, id]
-    );
-
-    if (emailCheck.rows.length > 0) {
-      return res.status(400).json({ error: 'El email ya está en uso por otro estudiante' });
-    }
-
-
-    
 
     // Actualizar el estudiante en la base de datos
     const result = await pool.query(
