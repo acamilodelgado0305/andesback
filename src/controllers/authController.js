@@ -65,17 +65,25 @@ const getUserByIdController = async (req, res) => {
   }
 
   try {
-    const result = await pool.query('SELECT id, email,name, created_at, updated_at FROM users WHERE id = $1', [id]);
-    const user = result.rows[0];
-
-    if (!user) {
+    // Seleccionamos todos los campos EXCEPTO la contraseña
+    const result = await pool.query(`
+      SELECT id, email, name, created_at, updated_at, app, role 
+      FROM users 
+      WHERE id = $1
+    `, [id]);
+    
+    if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
-    res.json(user);
+    res.json(result.rows[0]);
+    
   } catch (err) {
-    console.error('Error obteniendo usuario por ID', err);
-    res.status(500).json({ error: 'Error obteniendo usuario por ID' });
+    console.error('Error obteniendo usuario por ID:', err);
+    res.status(500).json({ 
+      error: 'Error interno del servidor',
+      details: process.env.NODE_ENV === 'development' ? err.message : null
+    });
   }
 };
 
