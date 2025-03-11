@@ -40,13 +40,13 @@ const uploadStudentsController = async (req, res) => {
             direccionAcudiente: row['Dirección Acudiente'] || null,
             simat: row['SIMAT'] || null,
             estadoMatricula: row['Estado Matrícula'] === 'true',
-            programa_id: row['Programa ID'] || null
+            programa_nombre: row['Programa ID'] || null
         }));
 
-        // Validar que todos los estudiantes tengan programa_id
+        // Validar que todos los estudiantes tengan programa
         for (const student of students) {
-            if (!student.programa_id) {
-                return res.status(400).json({ error: 'Falta programa_id para uno o más estudiantes.' });
+            if (!student.programa_nombre) {
+                return res.status(400).json({ error: 'Falta programa_nombre para uno o más estudiantes.' });
             }
         }
 
@@ -55,7 +55,7 @@ const uploadStudentsController = async (req, res) => {
             INSERT INTO students 
             (nombre, apellido, email, tipo_documento, numero_documento, lugar_expedicion, fecha_nacimiento, lugar_nacimiento,
             telefono_llamadas, telefono_whatsapp, eps, rh, nombre_acudiente, tipo_documento_acudiente,
-            telefono_acudiente, direccion_acudiente, simat, estado_matricula, programa_id, coordinador, fecha_inscripcion, activo)
+            telefono_acudiente, direccion_acudiente, simat, estado_matricula, programa_nombre, coordinador, fecha_inscripcion, activo)
             VALUES 
             ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, CURRENT_TIMESTAMP, true)
         `;
@@ -83,7 +83,7 @@ const uploadStudentsController = async (req, res) => {
                     student.direccionAcudiente,
                     student.simat,
                     student.estadoMatricula,
-                    student.programa_id,
+                    student.programa_nombre,
                     coordinador
                 ]);
             }

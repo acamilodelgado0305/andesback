@@ -21,13 +21,13 @@ const createUserReg = async (
   simat,
   estadoMatricula,
   coordinador,
-  programa_id
+  programa_nombre
 ) => {
   const result = await pool.query(
     `INSERT INTO students 
       (nombre, apellido, email, tipo_documento, numero_documento, lugar_expedicion, fecha_nacimiento, lugar_nacimiento, 
        telefono_llamadas, telefono_whatsapp, eps, rh, nombre_acudiente, tipo_documento_acudiente, 
-       telefono_acudiente, direccion_acudiente, simat, estado_matricula, coordinador, programa_id, fecha_inscripcion, activo) 
+       telefono_acudiente, direccion_acudiente, simat, estado_matricula, coordinador, programa_nombre, fecha_inscripcion, activo) 
      VALUES 
       ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, CURRENT_TIMESTAMP, true) 
      RETURNING *`,
@@ -51,7 +51,7 @@ const createUserReg = async (
       simat,
       estadoMatricula,
       coordinador,
-      programa_id
+      programa_nombre
     ]
   );
   return result.rows[0];
@@ -91,7 +91,7 @@ const updateUserReg = async (
   simat,
   estadoMatricula,
   coordinador,
-  programa_id,
+  programa_nombre,
   activo
 ) => {
   const result = await pool.query(
@@ -99,7 +99,7 @@ const updateUserReg = async (
      SET nombre = $1, apellido = $2, email = $3, tipo_documento = $4, numero_documento = $5, lugar_expedicion = $6, 
          fecha_nacimiento = $7, lugar_nacimiento = $8, telefono_llamadas = $9, telefono_whatsapp = $10, 
          eps = $11, rh = $12, nombre_acudiente = $13, tipo_documento_acudiente = $14, telefono_acudiente = $15, 
-         direccion_acudiente = $16, simat = $17, estado_matricula = $18, coordinador = $19, programa_id = $20, 
+         direccion_acudiente = $16, simat = $17, estado_matricula = $18, coordinador = $19, programa_nombre = $20, 
          activo = $21, updated_at = CURRENT_TIMESTAMP 
      WHERE id = $22 
      RETURNING *`,
@@ -123,7 +123,7 @@ const updateUserReg = async (
       simat,
       estadoMatricula,
       coordinador,
-      programa_id,
+      programa_nombre,
       activo,
       id
     ]
