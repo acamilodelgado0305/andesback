@@ -263,11 +263,25 @@ const updateEstadoStudentController = async (req, res) => {
   }
 };
 
+const getStudentsByBachilleratoController = async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT * FROM students WHERE programa_nombre = $1',
+      ['Validación de bachillerato']
+    );
+    res.status(200).json(result.rows);
+  } catch (err) {
+    console.error('Error obteniendo estudiantes de Validación de Bachillerato', err);
+    res.status(500).json({ error: 'Error obteniendo estudiantes de Validación de Bachillerato' });
+  }
+};
+
 export {
   createStudentController,
   getStudentsController,
   getStudentByIdController,
   updateStudentController,
   deleteStudentController,
-  updateEstadoStudentController
+  updateEstadoStudentController,
+  getStudentsByBachilleratoController
 };
