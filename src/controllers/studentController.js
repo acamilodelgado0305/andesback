@@ -276,6 +276,19 @@ const getStudentsByBachilleratoController = async (req, res) => {
   }
 };
 
+const getStudentsByTecnicosController = async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT * FROM students WHERE programa_nombre != $1',
+      ['Validación de bachillerato']
+    );
+    res.status(200).json(result.rows);
+  } catch (err) {
+    console.error('Error obteniendo estudiantes de Cursos Técnicos', err);
+    res.status(500).json({ error: 'Error obteniendo estudiantes de Cursos Técnicos' });
+  }
+};
+
 export {
   createStudentController,
   getStudentsController,
@@ -283,5 +296,8 @@ export {
   updateStudentController,
   deleteStudentController,
   updateEstadoStudentController,
-  getStudentsByBachilleratoController
+  getStudentsByBachilleratoController,
+  getStudentsByTecnicosController // Agregar el nuevo controlador a las exportaciones
 };
+
+

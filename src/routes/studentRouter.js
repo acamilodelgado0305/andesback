@@ -6,7 +6,8 @@ import {
   updateStudentController,
   deleteStudentController,
   updateEstadoStudentController,
-  getStudentsByBachilleratoController
+  getStudentsByBachilleratoController,
+  getStudentsByTecnicosController
 } from '../controllers/studentController.js';
 
 import { getGradesByStudentIdController } from '../controllers/GradesController.js';
@@ -18,6 +19,7 @@ const router = express.Router();
 // Rutas para manejar estudiantes
 router.post('/students', createStudentController); // Crear un nuevo estudiante
 router.get('/students/bachillerato', getStudentsByBachilleratoController); // Crear un nuevo estudiante
+router.get('/students/cursos-tecnicos', getStudentsByTecnicosController); // Crear un nuevo estudiante
 router.get('/students', getStudentsController); // Obtener todos los estudiantes
 router.get('/students/:id', getStudentByIdController); // Obtener un estudiante por su ID
 router.get('/grades/students/:id', getGradesByStudentIdController); // Obtener un estudiante por su ID
