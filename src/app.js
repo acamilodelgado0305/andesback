@@ -33,7 +33,7 @@ app.use((err, req, res, next) => {
 });
 
 // Rutas públicas (sin protección)
-app.use('/auth', authRouter);
+app.use('/api', authRouter);
 
 // Rutas protegidas (requieren autenticación con token)
 app.use('/api', StudentRouter);

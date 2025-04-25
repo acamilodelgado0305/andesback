@@ -4,7 +4,7 @@ import { registerController, loginController, getUserByIdController } from '../c
 
 const router = express.Router();
 
-router.post('/register', registerController);
+router.post('/registro', registerController);
 router.post('/login', loginController);
 router.get('/users/:id', getUserByIdController); // Obtener usuario por ID
 
