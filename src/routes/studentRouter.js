@@ -10,7 +10,7 @@ import {
   getStudentsByTecnicosController
 } from '../controllers/studentController.js';
 
-import { getGradesByStudentIdController } from '../controllers/GradesController.js';
+import { getGradesByStudentIdController,getGradesByStudentDocumentController } from '../controllers/GradesController.js';
 
 import { uploadStudentsController } from "../controllers/uploadStudentsController.js"
 import upload from "../uploadMiddleware.js"
@@ -23,6 +23,7 @@ router.get('/students/cursos-tecnicos', getStudentsByTecnicosController); // Cre
 router.get('/students', getStudentsController); // Obtener todos los estudiantes
 router.get('/students/:id', getStudentByIdController); // Obtener un estudiante por su ID
 router.get('/grades/students/:id', getGradesByStudentIdController); // Obtener un estudiante por su ID
+router.get('/grades/student/:numero_documento', getGradesByStudentDocumentController);
 router.put('/students/:id', updateStudentController); // Actualizar un estudiante por su ID
 router.delete('/students/:id', deleteStudentController); // Eliminar un estudiante por su ID
 router.put('/students/status_matricula/:id', updateEstadoStudentController);
