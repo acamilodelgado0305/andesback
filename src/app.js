@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import StudentRouter from "./routes/studentRouter.js";
-import ProgramRouter from "./routes/programRouter.js";
+import InventarioRouter from "./routes/inventarioRouter.js";
 import RegistroRouter from "./routes/registroRouter.js";
 import authRouter from './routes/authRouter.js';
 import facturaRouter from './routes/facturaRouter.js';
@@ -37,7 +37,7 @@ app.use('/auth', authRouter);
 
 // Rutas protegidas (requieren autenticación con token)
 app.use('/api', StudentRouter);
-app.use('/api',  ProgramRouter);
+app.use('/api',  InventarioRouter);
 app.use('/api', RegistroRouter);
 app.use('/api',  facturaRouter);
 app.use('/api',  subjectRouter);

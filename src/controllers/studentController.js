@@ -1,6 +1,10 @@
 import pool from '../database.js';
 
+
+
+
 const createStudentController = async (req, res) => {
+  // Desestructura los campos que vienen del frontend
   const {
     nombre,
     apellido,
@@ -12,34 +16,46 @@ const createStudentController = async (req, res) => {
     lugarNacimiento,
     telefonoLlamadas,
     telefonoWhatsapp,
-    eps,
-    rh,
-    nombreAcudiente,
-    tipoDocumentoAcudiente,
-    telefonoAcudiente,
-    direccionAcudiente,
     simat,
-    estadoMatricula,
-    programa_nombre,
-    coordinador,
+    pagoMatricula, // 'Pagado' o 'Pendiente' (string)
+    programasIds,
+    coordinador, // Este campo es nuevo en la BD, asegúrate de que exista o quítalo
     modalidad_estudio,
-    ultimo_curso_visto, // Nuevo campo agregado aquí
+    ultimoCursoAprobado,
   } = req.body;
 
-  if (!programa_nombre) {
-    return res.status(400).json({ error: 'El campo programa_nombre es obligatorio' });
+  // Validaciones básicas
+  if (!programasIds || !Array.isArray(programasIds) || programasIds.length === 0) {
+    return res.status(400).json({ error: 'Debe seleccionar al menos un programa de interés (ID de inventario).' });
+  }
+  if (!nombre || !apellido || !email || !numeroDocumento) {
+    return res.status(400).json({ error: 'Faltan campos obligatorios para el estudiante (nombre, apellido, email, número de documento).' });
   }
 
+  // --- CORRECCIÓN AQUÍ: Mapear 'pagoMatricula' a un valor booleano ---
+  const estadoMatriculaBoolean = (pagoMatricula === 'Pagado'); // 'Pagado' -> true, 'Pendiente' -> false
+  // ------------------------------------------------------------------
+
+  let client; // Variable para la conexión del cliente para la transacción
+
   try {
-    const result = await pool.query(
-      `INSERT INTO students 
-        (nombre, apellido, email, tipo_documento, numero_documento, lugar_expedicion, fecha_nacimiento, lugar_nacimiento, 
-         telefono_llamadas, telefono_whatsapp, eps, rh, nombre_acudiente, tipo_documento_acudiente, 
-         telefono_acudiente, direccion_acudiente, simat, estado_matricula, programa_nombre, coordinador, modalidad_estudio, 
-         ultimo_curso_visto, fecha_inscripcion, activo) 
-       VALUES 
-        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, CURRENT_TIMESTAMP, true) 
-       RETURNING *`,
+    client = await pool.connect(); // Obtener un cliente del pool
+    await client.query('BEGIN'); // Iniciar la transacción
+
+    // 1. Insertar el nuevo estudiante en la tabla 'students'
+    // Asegúrate de que todas estas columnas existan en tu tabla 'students'
+    // He agregado 'coordinador' aquí. Si no lo vas a usar, elimínalo.
+    const studentInsertQuery = `
+      INSERT INTO students
+        (nombre, apellido, email, tipo_documento, numero_documento, lugar_expedicion, fecha_nacimiento, lugar_nacimiento,
+         telefono_llamadas, telefono_whatsapp, simat, estado_matricula, coordinador, modalidad_estudio,
+         ultimo_curso_visto, fecha_inscripcion, activo)
+      VALUES
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, CURRENT_TIMESTAMP, true)
+      RETURNING id`;
+
+    const studentResult = await client.query(
+      studentInsertQuery,
       [
         nombre,
         apellido,
@@ -51,51 +67,193 @@ const createStudentController = async (req, res) => {
         lugarNacimiento,
         telefonoLlamadas,
         telefonoWhatsapp,
-        eps,
-        rh,
-        nombreAcudiente,
-        tipoDocumentoAcudiente,
-        telefonoAcudiente,
-        direccionAcudiente,
         simat,
-        estadoMatricula,
-        programa_nombre,
-        coordinador,
+        estadoMatriculaBoolean, // Usar el valor booleano mapeado
+        coordinador, // Pasar el valor del coordinador aquí
         modalidad_estudio,
-        ultimo_curso_visto, // Nuevo valor agregado al array
+        ultimoCursoAprobado,
       ]
     );
-    res.status(201).json(result.rows[0]);
+
+    const newStudentId = studentResult.rows[0].id;
+
+    // 2. Insertar las relaciones en la tabla intermedia 'estudiante_programas'
+    // CORRECCIÓN: Usar el nombre de tabla y columnas correctos
+    for (const programaId of programasIds) { // Cambié 'inventarioId' a 'programaId' para mayor claridad
+      if (isNaN(parseInt(programaId, 10))) {
+        throw new Error(`ID de programa inválido proporcionado: ${programaId}`);
+      }
+
+      const programAssignQuery = `
+        INSERT INTO estudiante_programas (estudiante_id, programa_id)
+        VALUES ($1, $2)
+      `;
+      await client.query(programAssignQuery, [newStudentId, parseInt(programaId, 10)]);
+    }
+
+    await client.query('COMMIT');
+    res.status(201).json({ message: "Estudiante y programas asociados creados exitosamente", studentId: newStudentId });
+
   } catch (err) {
-    console.error('Error creando estudiante', err);
-    res.status(500).json({ error: 'Error creando estudiante' });
+    if (client) {
+      await client.query('ROLLBACK');
+    }
+    console.error('Error creando estudiante o asociando programas:', err);
+    res.status(500).json({
+      error: 'Error al crear el estudiante o asociar los programas.',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  } finally {
+    if (client) {
+      client.release();
+    }
   }
 };
-
 
 const getStudentsController = async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM students');
+    // Consulta SQL para obtener todos los estudiantes
+    // y los nombres de los programas asociados a cada uno,
+    // agrupados en un array.
+    const query = `
+      SELECT
+          s.id,
+          s.nombre,
+          s.apellido,
+          s.email,
+          s.tipo_documento,
+          s.numero_documento,
+          s.lugar_expedicion,
+          s.fecha_nacimiento,
+          s.lugar_nacimiento,
+          s.telefono_llamadas,
+          s.telefono_whatsapp,
+          s.simat,
+          s.estado_matricula,
+          s.coordinador, -- Asegúrate de que esta columna exista en 'students'
+          s.modalidad_estudio,
+          s.ultimo_curso_visto,
+          s.fecha_inscripcion,
+          s.activo,
+          s.created_at,
+          s.updated_at,
+          s.fecha_graduacion,
+          s.matricula,
+          -- Agregamos los programas asociados como un array de objetos JSON
+          COALESCE(
+              json_agg(
+                  json_build_object(
+                      'programa_id', i.id,
+                      'nombre_programa', i.nombre,
+                      'monto_programa', i.monto -- Puedes incluir más campos de inventario si los necesitas
+                  )
+                  ORDER BY i.nombre -- Opcional: ordenar los programas por nombre
+              ) FILTER (WHERE i.id IS NOT NULL), -- Importante para no incluir nulls si no hay programas
+              '[]'::json -- Si no hay programas, devuelve un array vacío en lugar de null
+          ) AS programas_asociados
+      FROM
+          students s
+      LEFT JOIN
+          estudiante_programas ep ON s.id = ep.estudiante_id
+      LEFT JOIN
+          inventario i ON ep.programa_id = i.id
+      GROUP BY
+          s.id -- Agrupar por el ID del estudiante para que ARRAY_AGG funcione correctamente
+      ORDER BY
+          s.nombre, s.apellido; -- Opcional: ordenar los resultados principales
+    `;
+
+    const result = await pool.query(query);
+
     res.status(200).json(result.rows);
+
   } catch (err) {
-    console.error('Error obteniendo estudiantes', err);
-    res.status(500).json({ error: 'Error obteniendo estudiantes' });
+    console.error('Error obteniendo estudiantes y programas asociados:', err);
+    res.status(500).json({
+      error: 'Error obteniendo estudiantes y sus programas asociados.',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
   }
 };
+
+
+
+// Asegúrate de tener tu configuración de pool de PostgreSQL importada
+// const pool = require('../config/db'); // Ejemplo de importación
 
 const getStudentByIdController = async (req, res) => {
   const { id } = req.params;
   try {
-    const result = await pool.query('SELECT * FROM students WHERE id = $1', [id]);
+    // Consulta SQL para obtener un estudiante específico
+    // y sus programas asociados agrupados en un array JSON.
+    const query = `
+      SELECT
+          s.id,
+          s.nombre,
+          s.apellido,
+          s.email,
+          s.tipo_documento,
+          s.numero_documento,
+          s.lugar_expedicion,
+          s.fecha_nacimiento,
+          s.lugar_nacimiento,
+          s.telefono_llamadas,
+          s.telefono_whatsapp,
+          s.simat,
+          s.estado_matricula,
+          s.coordinador,
+          s.modalidad_estudio,
+          s.ultimo_curso_visto,
+          s.fecha_inscripcion,
+          s.activo,
+          s.created_at,
+          s.updated_at,
+          s.fecha_graduacion,
+          s.matricula,
+          -- Agregamos los programas asociados como un array de objetos JSON
+          COALESCE(
+              json_agg(
+                  json_build_object(
+                      'programa_id', i.id,
+                      'nombre_programa', i.nombre,
+                      'monto_programa', i.monto -- Puedes incluir más campos de inventario si los necesitas
+                  )
+                  ORDER BY i.nombre
+              ) FILTER (WHERE i.id IS NOT NULL), -- Importante para no incluir nulls si no hay programas
+              '[]'::json -- Si no hay programas, devuelve un array vacío en lugar de null
+          ) AS programas_asociados
+      FROM
+          students s
+      LEFT JOIN
+          estudiante_programas ep ON s.id = ep.estudiante_id
+      LEFT JOIN
+          inventario i ON ep.programa_id = i.id
+      WHERE
+          s.id = $1 -- Aquí filtramos por el ID del estudiante
+      GROUP BY
+          s.id; -- Agrupar por el ID del estudiante es esencial para json_agg
+    `;
+
+    const result = await pool.query(query, [id]); // Pasamos el ID como parámetro de la consulta
+
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Estudiante no encontrado' });
     }
+
+    // Como esperamos solo un estudiante por ID, devolvemos el primer (y único) resultado.
     res.status(200).json(result.rows[0]);
+
   } catch (err) {
-    console.error('Error obteniendo estudiante', err);
-    res.status(500).json({ error: 'Error obteniendo estudiante' });
+    console.error('Error obteniendo estudiante por ID y sus programas asociados:', err);
+    res.status(500).json({
+      error: 'Error obteniendo estudiante por ID',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined // Solo detalles en desarrollo
+    });
   }
 };
+
+
+
 
 const updateStudentController = async (req, res) => {
   const { id } = req.params;
@@ -223,9 +381,6 @@ const updateStudentController = async (req, res) => {
     });
   }
 };
-
-
-
 
 const deleteStudentController = async (req, res) => {
   const { id } = req.params;
