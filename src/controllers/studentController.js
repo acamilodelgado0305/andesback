@@ -510,6 +510,78 @@ const getStudentsByProgramTypeController = async (req, res) => {
 };
 
 
+
+const getStudentsByCoordinatorIdController = async (req, res) => {
+    const { coordinatorId } = req.params; // Asume que el ID del coordinador viene en los parámetros de la ruta
+
+    if (!coordinatorId || isNaN(coordinatorId)) {
+        return res.status(400).json({ error: 'ID de coordinador inválido o no proporcionado.' });
+    }
+
+    try {
+        const query = `
+            SELECT
+                s.id,
+                s.nombre,
+                s.apellido,
+                s.email,
+                s.tipo_documento,
+                s.numero_documento,
+                s.lugar_expedicion,
+                s.fecha_nacimiento,
+                s.lugar_nacimiento,
+                s.telefono_llamadas,
+                s.telefono_whatsapp,
+                s.simat,
+                s.estado_matricula,
+                u.name AS coordinador_nombre,
+                s.modalidad_estudio,
+                s.ultimo_curso_visto,
+                s.fecha_inscripcion,
+                s.activo,
+                s.created_at,
+                s.updated_at,
+                s.fecha_graduacion,
+                s.matricula,
+                COALESCE(
+                    json_agg(
+                        json_build_object(
+                            'programa_id', i.id,
+                            'nombre_programa', i.nombre,
+                            'monto_programa', i.monto
+                        )
+                        ORDER BY i.nombre
+                    ) FILTER (WHERE i.id IS NOT NULL),
+                    '[]'::json
+                ) AS programas_asociados
+            FROM
+                students s
+            LEFT JOIN
+                estudiante_programas ep ON s.id = ep.estudiante_id
+            LEFT JOIN
+                inventario i ON ep.programa_id = i.id
+            LEFT JOIN
+                users u ON s.coordinador_id = u.id
+            WHERE
+                s.coordinador_id = $1 -- Filtramos por el ID del coordinador
+            GROUP BY
+                s.id, u.name
+            ORDER BY
+                s.nombre, s.apellido;
+        `;
+        const result = await pool.query(query, [coordinatorId]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'No se encontraron estudiantes para este coordinador.' });
+        }
+
+        res.status(200).json(result.rows);
+    } catch (err) {
+        handleServerError(res, err, 'Error obteniendo estudiantes por ID de coordinador.');
+    }
+};
+
+
 export {
     createStudentController,
     getStudentsController,
@@ -519,5 +591,6 @@ export {
     updateEstadoStudentController,
     // Renombre y consolidación de controladores de filtrado
     getStudentsByProgramaIdController, // Nuevo controlador para filtrar por ID de programa específico
-    getStudentsByProgramTypeController // Nuevo controlador para filtrar por tipo de programa (bachillerato/tecnicos)
+    getStudentsByProgramTypeController, // Nuevo controlador para filtrar por tipo de programa (bachillerato/tecnicos)
+    getStudentsByCoordinatorIdController
 };

@@ -8,7 +8,8 @@ import {
   updateEstadoStudentController,
   // === Controladores de filtrado actualizados ===
   getStudentsByProgramTypeController, // Reemplaza getStudentsByBachilleratoController y getStudentsByTecnicosController
-  getStudentsByProgramaIdController   // Nuevo para filtrar por ID de programa
+  getStudentsByProgramaIdController,  // Nuevo para filtrar por ID de programa
+  getStudentsByCoordinatorIdController 
 } from '../controllers/studentController.js';
 
 import { getGradesByStudentIdController, getGradesByStudentDocumentController } from '../controllers/GradesController.js';
@@ -60,6 +61,8 @@ router.delete('/students/:id', deleteStudentController);
 
 // POST: Subir archivo de estudiantes
 router.post('/upload-students', upload.single('file'), uploadStudentsController);
+
+router.get('/students/coordinator/:coordinatorId', getStudentsByCoordinatorIdController);
 
 
 // =======================================================
