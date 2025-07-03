@@ -29,7 +29,7 @@ app.use(express.json());
 // Middleware para manejar errores
 app.use((err, req, res, next) => {
     console.error('Error:', err.message);
-    res.status(500).send('Error interno del servidor');
+    res.status(500).send('Error interno del servidor'); 
 });
 
 // Rutas públicas (sin protección)
