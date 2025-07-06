@@ -70,45 +70,44 @@ const getGradesByStudentIdController = async (req, res) => {
 
 
 
-
 const getGradesByStudentDocumentController = async (req, res) => {
     const { numero_documento } = req.params;
 
-    // Validar que el número de documento sea proporcionado
+    // --- Depuración: Verificar el valor que llega al controlador ---
+    console.log('--- Depuración: getGradesByStudentDocumentController ---');
+    console.log('Número de documento recibido (req.params.numero_documento):', numero_documento);
+    console.log('Tipo de dato del número de documento:', typeof numero_documento);
+    console.log('----------------------------------------------------');
+
     if (!numero_documento || String(numero_documento).trim() === '') {
         return res.status(400).json({ error: 'El número de documento es requerido.' });
     }
 
     try {
-        // 1. Buscar la información del estudiante y su ID.
-        // Ajusta los nombres de las columnas 'programa_nombre' y 'coordinador'
-        // si son diferentes en tu tabla 'students' o si necesitas JOINs.
         const studentQuery = `
-            SELECT 
-                s.id,           -- Este será el studentId para el PDF
-                s.nombre, 
-                s.apellido, 
-                s.programa_nombre, 
-                s.coordinador
-            FROM students s
-            WHERE s.numero_documento = $1
-        `;
-        // Si 'programa_nombre' o 'coordinador' vienen de otras tablas, un ejemplo con JOIN:
-        /*
-        const studentQuery = `
-            SELECT 
+            SELECT
                 s.id,
                 s.nombre,
                 s.apellido,
-                p.nombre_programa AS programa_nombre, -- Suponiendo una tabla 'programas'
-                c.nombre_coordinador AS coordinador    -- Suponiendo una tabla 'coordinadores'
-            FROM students s
-            LEFT JOIN programas p ON s.id_programa = p.id
-            LEFT JOIN coordinadores c ON s.id_coordinador = c.id
-            WHERE s.numero_documento = $1
+                s.numero_documento,   -- **** ¡CAMBIO CRÍTICO AQUÍ! Si la columna es 'numero_documento' ****
+                p.nombre AS programa_nombre,
+                u.name AS coordinador
+            FROM
+                students s
+            LEFT JOIN
+                inventario p ON s.programa_id = p.id
+            LEFT JOIN
+                users u ON s.coordinador_id = u.id
+            WHERE
+                s.numero_documento = $1; -- **** ¡CAMBIO CRÍTICO AQUÍ! Si la columna es 'numero_documento' ****
         `;
-        */
+
+        // --- Depuración: Ejecutar la consulta y ver el resultado exacto ---
+        console.log('Consulta SQL para el estudiante:', studentQuery.replace('$1', `'${numero_documento}'`));
         const studentResult = await pool.query(studentQuery, [numero_documento]);
+        console.log('Resultados de la consulta del estudiante (studentResult.rows):', studentResult.rows);
+        console.log('Filas encontradas para el estudiante:', studentResult.rows.length);
+        console.log('----------------------------------------------------');
 
         if (studentResult.rows.length === 0) {
             return res.status(404).json({ error: 'Estudiante no encontrado con el número de documento proporcionado.' });
@@ -116,40 +115,36 @@ const getGradesByStudentDocumentController = async (req, res) => {
 
         const studentDataFromDB = studentResult.rows[0];
 
-        // Estructurar la información del estudiante como la espera el componente PDF
         const studentInfoForPDF = {
             nombre: studentDataFromDB.nombre,
             apellido: studentDataFromDB.apellido,
-            programa_nombre: studentDataFromDB.programa_nombre || 'No asignado', // Valor por defecto
-            coordinador: studentDataFromDB.coordinador || 'No asignado'         // Valor por defecto
+            programa_nombre: studentDataFromDB.programa_nombre || 'No asignado',
+            coordinador: studentDataFromDB.coordinador || 'No asignado',
+            documento: studentDataFromDB.numero_documento // Asegúrate de usar la columna correcta aquí también para el objeto de respuesta
         };
         const studentIdForPDF = studentDataFromDB.id;
 
-        // 2. Obtener las notas del estudiante usando su ID
-        // La estructura de 'grades' (materia, nota) es la que espera el componente PDF.
         const gradesQuery = `
-            SELECT materia, nota 
-            FROM grades 
+            SELECT materia, nota
+            FROM grades
             WHERE student_id = $1
-            ORDER BY materia ASC  -- Opcional: para que las materias salgan ordenadas
+            ORDER BY materia ASC;
         `;
         const gradesResult = await pool.query(gradesQuery, [studentIdForPDF]);
         const gradesForPDF = gradesResult.rows;
 
-        // 3. Devolver los datos en formato JSON
-        // La estructura de este JSON debe coincidir con los parámetros
-        // que espera tu función generateGradeReportPDF(student, grades, studentId)
         res.status(200).json({
-            student: studentInfoForPDF, // Objeto para el parámetro 'student'
-            grades: gradesForPDF,       // Array para el parámetro 'grades'
-            studentId: studentIdForPDF  // Valor para el parámetro 'studentId'
+            student: studentInfoForPDF,
+            grades: gradesForPDF,
+            studentId: studentIdForPDF
         });
 
     } catch (err) {
-        console.error('Error obteniendo datos para el reporte del estudiante:', err);
+        console.error(`Error obteniendo datos para el reporte del estudiante con documento ${numero_documento}:`, err);
         res.status(500).json({ error: 'Error interno del servidor al obtener los datos del reporte.' });
     }
 };
+
 
 
 
