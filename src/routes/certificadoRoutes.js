@@ -6,9 +6,7 @@ import {
 } from '../controllers/certificadoController.js'; 
 
 
-import { 
-      generarDocumentosController
-} from '../controllers/CertificadosController.js'; 
+
 
 // Si necesitas autenticación para estas rutas, importa tu middleware
 // import { verifyToken } from '../middleware/authMiddleware.js'; 
@@ -28,9 +26,5 @@ router.post('/generar-carnet',
 );
 
 
-router.post('/generar-documentos', 
-    // verifyToken, // Descomenta si requieres autenticación
-    generarDocumentosController
-);
 
 export default router;
