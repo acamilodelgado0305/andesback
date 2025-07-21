@@ -8,6 +8,7 @@ import authRouter from './routes/authRouter.js';
 import facturaRouter from './routes/facturaRouter.js';
 import subjectRouter from './routes/subjectRoutes.js'
 import GradesRouter from './routes/GradesRouter.js'
+import CertificadosRouter from "./routes/certificadoRoutes.js"
 import verifyToken from './authMiddleware.js';
 import dotenv from "dotenv";
 
@@ -42,5 +43,6 @@ app.use('/api', RegistroRouter);
 app.use('/api',  facturaRouter);
 app.use('/api',  subjectRouter);
 app.use('/api',  GradesRouter);
+app.use('/api',  CertificadosRouter);
 
 export default app;
