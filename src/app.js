@@ -9,6 +9,7 @@ import facturaRouter from './routes/facturaRouter.js';
 import subjectRouter from './routes/subjectRoutes.js'
 import GradesRouter from './routes/GradesRouter.js'
 import CertificadosRouter from "./routes/certificadoRoutes.js"
+import adminrRoutes from './routes/admin/adminRoutes.js'
 import verifyToken from './authMiddleware.js';
 import dotenv from "dotenv";
 
@@ -44,5 +45,6 @@ app.use('/api',  facturaRouter);
 app.use('/api',  subjectRouter);
 app.use('/api',  GradesRouter);
 app.use('/api',  CertificadosRouter);
+app.use('/api',  adminrRoutes);
 
 export default app;

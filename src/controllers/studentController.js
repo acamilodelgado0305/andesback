@@ -234,78 +234,101 @@ const getStudentByIdController = async (req, res) => {
 // =======================================================
 const updateStudentController = async (req, res) => {
     const { id } = req.params;
+
+    // 1. Extraemos todo de req.body
     const {
-        nombre, apellido, email, tipoDocumento, numeroDocumento, lugarExpedicion,
-        fechaNacimiento, lugarNacimiento, telefonoLlamadas, telefonoWhatsapp,
-        eps, rh, nombreAcudiente, tipoDocumentoAcudiente, telefonoAcudiente,
-        direccionAcudiente, simat, estadoMatricula, // Esto podría ser 'Pagado'/'Pendiente'
-        programasIds, // Array de IDs de programas (para actualizar asociaciones)
-        coordinador_id, // Recibir el ID del coordinador
-        activo, modalidad_estudio, ultimo_curso_visto, matricula // Asegúrate de que 'matricula' sea un INT o numérico
+        nombre, apellido, email, tipo_documento, numero_documento, lugar_expedicion,
+        fecha_nacimiento, lugar_nacimiento, telefono_llamadas, telefono_whatsapp,
+        eps, rh, nombre_acudiente, tipo_documento_acudiente, telefono_acudiente,
+        direccion_acudiente, simat, estado_matricula,
+        programasIds, // ¡Correcto! Ya recibes programasIds
+        coordinador_id,
+        activo, modalidad_estudio, ultimo_curso_visto, matricula
     } = req.body;
 
     // Validaciones
     if (!id || isNaN(id)) {
         return res.status(400).json({ error: 'ID de estudiante inválido.' });
     }
-    if (!nombre || !apellido || !email || !numeroDocumento) {
+    if (!nombre || !apellido || !email || !numero_documento) {
         return res.status(400).json({ error: 'Campos obligatorios (nombre, apellido, email, número de documento) no pueden estar vacíos.' });
-    }
-    if (coordinador_id && (typeof coordinador_id !== 'number' || isNaN(coordinador_id))) {
-        return res.status(400).json({ error: 'ID de coordinador inválido.' });
     }
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
         return res.status(400).json({ error: 'Formato de email inválido.' });
     }
 
-    const estadoMatriculaBoolean = (estadoMatricula === 'Pagado'); // Convierte a booleano
-
     let client;
     try {
         client = await pool.connect();
         await client.query('BEGIN');
 
-        // 1. Verificar si el estudiante existe
-        const existingStudent = await client.query('SELECT id FROM students WHERE id = $1', [id]);
-        if (existingStudent.rows.length === 0) {
-            await client.query('ROLLBACK');
-            return res.status(404).json({ error: 'Estudiante no encontrado.' });
+        // 2. Mapeo explícito y correcto usando las constantes definidas arriba
+        // Las claves (izquierda) son los nombres de las columnas en la DB
+        const studentFieldsToUpdate = {
+            nombre,
+            apellido,
+            email,
+            tipo_documento,
+            numero_documento,
+            lugar_expedicion,
+            fecha_nacimiento,
+            lugar_nacimiento,
+            telefono_llamadas,
+            telefono_whatsapp,
+            eps,
+            rh,
+            nombre_acudiente,
+            tipo_documento_acudiente,
+            telefono_acudiente,
+            direccion_acudiente,
+            simat,
+            estado_matricula,
+            coordinador_id,
+            activo,
+            modalidad_estudio,
+            ultimo_curso_visto,
+            matricula
+        };
+
+        const setClauses = [];
+        const updateParams = [];
+        let paramIndex = 1;
+
+        // 3. Construimos la query solo con los campos que realmente se enviaron
+        for (const key in studentFieldsToUpdate) {
+            if (studentFieldsToUpdate[key] !== undefined) {
+                setClauses.push(`${key} = $${paramIndex}`);
+                updateParams.push(studentFieldsToUpdate[key]);
+                paramIndex++;
+            }
         }
 
-        // 2. Actualizar datos del estudiante
-        const updateStudentQuery = `
-            UPDATE students
-            SET
-                nombre = $1, apellido = $2, email = $3, tipo_documento = $4,
-                numero_documento = $5, lugar_expedicion = $6, fecha_nacimiento = $7,
-                lugar_nacimiento = $8, telefono_llamadas = $9, telefono_whatsapp = $10,
-                eps = $11, rh = $12, nombre_acudiente = $13, tipo_documento_acudiente = $14,
-                telefono_acudiente = $15, direccion_acudiente = $16, simat = $17,
-                estado_matricula = $18, -- Usar booleano
-                coordinador_id = $19, -- Usar el ID numérico
-                activo = $20, modalidad_estudio = $21, ultimo_curso_visto = $22,
-                matricula = $23, updated_at = CURRENT_TIMESTAMP
-            WHERE id = $24
-            RETURNING *;
-        `;
+        // El resto de tu lógica ya es correcta
+        if (setClauses.length > 0) {
+            setClauses.push(`updated_at = CURRENT_TIMESTAMP`);
+            updateParams.push(id);
 
-        const updateParams = [
-            nombre, apellido, email, tipoDocumento, numeroDocumento, lugarExpedicion,
-            fechaNacimiento, lugarNacimiento, telefonoLlamadas, telefonoWhatsapp,
-            eps, rh, nombreAcudiente, tipoDocumentoAcudiente, telefonoAcudiente,
-            direccionAcudiente, simat, estadoMatriculaBoolean, coordinador_id, // ¡Aquí va coordinador_id!
-            activo, modalidad_estudio, ultimo_curso_visto, matricula, id
-        ];
+            const updateStudentQuery = `
+                UPDATE students
+                SET ${setClauses.join(', ')}
+                WHERE id = $${paramIndex}
+                RETURNING *;
+            `;
 
-        const result = await client.query(updateStudentQuery, updateParams);
+            const result = await client.query(updateStudentQuery, updateParams);
+            if (result.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ error: 'Estudiante no encontrado.' });
+            }
+        }
 
-        // 3. Actualizar programas asociados (borrar y reinsertar es común para Many-to-Many simples)
+        // Actualización de la tabla pivote (esta parte ya estaba bien)
         if (programasIds && Array.isArray(programasIds)) {
             await client.query('DELETE FROM estudiante_programas WHERE estudiante_id = $1', [id]);
             for (const programaId of programasIds) {
-                if (isNaN(parseInt(programaId, 10))) {
-                    throw new Error(`ID de programa inválido proporcionado: ${programaId}`);
+                if (isNaN(parseInt(programaId, 10)) || parseInt(programaId, 10) <= 0) {
+                    throw new Error(`ID de programa inválido: ${programaId}`);
                 }
                 await client.query(
                     'INSERT INTO estudiante_programas (estudiante_id, programa_id) VALUES ($1, $2)',
@@ -315,10 +338,7 @@ const updateStudentController = async (req, res) => {
         }
 
         await client.query('COMMIT');
-        res.status(200).json({
-            mensaje: 'Estudiante actualizado exitosamente',
-            estudiante: result.rows[0]
-        });
+        res.status(200).json({ mensaje: 'Estudiante actualizado exitosamente' });
 
     } catch (err) {
         if (client) await client.query('ROLLBACK');
