@@ -356,15 +356,19 @@ const deleteStudentController = async (req, res) => {
     if (!id || isNaN(id)) {
         return res.status(400).json({ error: 'ID de estudiante inválido.' });
     }
+
     let client;
     try {
         client = await pool.connect();
-        await client.query('BEGIN'); // Iniciar transacción para eliminar relaciones
+        await client.query('BEGIN'); // Iniciar transacción
 
-        // 1. Eliminar las relaciones en 'estudiante_programas'
+        // 1. Eliminar los pagos asociados al estudiante (¡NUEVO!)
+        await client.query('DELETE FROM pagos WHERE student_id = $1', [id]);
+
+        // 2. Eliminar las relaciones en 'estudiante_programas'
         await client.query('DELETE FROM estudiante_programas WHERE estudiante_id = $1', [id]);
 
-        // 2. Eliminar el estudiante
+        // 3. Ahora sí, eliminar el estudiante
         const result = await client.query('DELETE FROM students WHERE id = $1 RETURNING *', [id]);
 
         if (result.rows.length === 0) {
@@ -372,8 +376,9 @@ const deleteStudentController = async (req, res) => {
             return res.status(404).json({ error: 'Estudiante no encontrado.' });
         }
 
-        await client.query('COMMIT');
-        res.status(200).json({ message: 'Estudiante y sus asociaciones eliminados exitosamente.', student: result.rows[0] });
+        await client.query('COMMIT'); // Confirmar todos los cambios
+        res.status(200).json({ message: 'Estudiante y todos sus registros asociados han sido eliminados.', student: result.rows[0] });
+
     } catch (err) {
         if (client) await client.query('ROLLBACK');
         handleServerError(res, err, 'Error eliminando estudiante.');
