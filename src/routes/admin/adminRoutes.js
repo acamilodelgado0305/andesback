@@ -4,6 +4,7 @@ import {
     getAllClientsController,
     getClientDetailsController,
     createSubscriptionController,
+    getSubscriptionExpirationController
 
 } from '../../controllers/admin/adminController.js';
 
@@ -17,6 +18,8 @@ const router = Router();
 
 // Rutas para la administración de clientes y suscripciones
 router.get('/clients', getAllClientsController);
+router.get('/subscriptions/expiration/:userId', getSubscriptionExpirationController);
+
 router.get('/clients/:userId', getClientDetailsController);
 router.post('/subscriptions', createSubscriptionController);
 

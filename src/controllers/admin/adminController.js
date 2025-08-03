@@ -87,3 +87,25 @@ export const createSubscriptionController = async (req, res) => {
         client.release();
     }
 };
+
+// Nuevo endpoint: getSubscriptionExpirationController
+export const getSubscriptionExpirationController = async (req, res) => {
+    try {
+        const userId = req.params.userId; // Usa el parámetro de la ruta en lugar de req.user
+        const query = `
+            SELECT end_date, amount_paid
+            FROM subscriptions
+            WHERE user_id = $1
+            ORDER BY end_date DESC
+            LIMIT 1;
+        `;
+        const result = await pool.query(query, [userId]);
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'No se encontró una suscripción para este usuario.' });
+        }
+        res.status(200).json(result.rows[0]);
+    } catch (err) {
+        console.error('Error al obtener fecha de vencimiento:', err);
+        res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+};
