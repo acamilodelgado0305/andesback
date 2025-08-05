@@ -1,10 +1,12 @@
 // src/routes/adminRoutes.js
 import { Router } from 'express';
 import {
-    getAllClientsController,
+    getSubscriptionsOverviewController,
     getClientDetailsController,
     createSubscriptionController,
-    getSubscriptionExpirationController
+    getSubscriptionExpirationController,
+    renewSubscriptionController,
+    getPlansController
 
 } from '../../controllers/admin/adminController.js';
 
@@ -17,11 +19,13 @@ const router = Router();
 // router.use(isAdmin); // Descomenta cuando tengas tu middleware de autorización
 
 // Rutas para la administración de clientes y suscripciones
-router.get('/clients', getAllClientsController);
+router.get('/subscriptions', getSubscriptionsOverviewController);
+router.get('/plans', getPlansController);
 router.get('/subscriptions/expiration/:userId', getSubscriptionExpirationController);
 
-router.get('/clients/:userId', getClientDetailsController);
+router.get('/client-details/:userId', getClientDetailsController);
 router.post('/subscriptions', createSubscriptionController);
+router.post('/subscriptions/renew', renewSubscriptionController);
 
 
 export default router;
