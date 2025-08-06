@@ -135,138 +135,116 @@ const generarCertificadoController = async (req, res) => {
 // Controlador para generar un CARNET
 // //////////////////////////////////////////////////////////////////////////////////
 const generarCarnetController = async (req, res) => {
+    // MODIFICADO: Los datos de texto vienen de req.body
     const { nombre, numeroDocumento, tipoDocumento } = req.body;
-
-    // 1. Validar los campos requeridos para el carnet
-    if (!nombre || !numeroDocumento || !tipoDocumento) {
-        return res.status(400).json({ error: 'Nombre, número de documento y tipo de documento son requeridos para generar el carnet.' });
-    }
-
-    console.log(`Solicitud de carnet para: ${nombre}, Doc: ${numeroDocumento}, Tipo: ${tipoDocumento}`);
+    
+    // NUEVO: El archivo de la foto viene de req.file gracias a multer
+    const fotoFile = req.file;
 
     try {
+        // 1. Validar los campos requeridos, incluyendo la foto
+        if (!nombre || !numeroDocumento || !tipoDocumento) {
+            return res.status(400).json({ error: 'Nombre, número de documento y tipo de documento son requeridos.' });
+        }
+        // NUEVO: Validar que la foto se haya subido
+      
+
+        console.log(`Solicitud de carnet para: ${nombre} con foto: ${fotoFile.originalname}`);
+
         // 2. Configurar la respuesta HTTP para un PDF
-        const fileName = `Carnet_${nombre.replace(/\s/g, '_')}_${numeroDocumento}.pdf`; // Reemplaza espacios para un nombre de archivo válido
+        const fileName = `Carnet_${nombre.replace(/\s/g, '_')}_${numeroDocumento}.pdf`;
         res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`); // 'attachment' para forzar descarga, 'inline' para mostrar en el navegador
+        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
 
         // 3. Crear un nuevo documento PDF
         const doc = new PDFDocument({
-            size: [85.6 * 2.83, 54 * 2.83], // Tamaño estándar de un carnet (en puntos: 85.6mm x 54mm)
-            margin: 0, // Margen 0 para que la imagen de fondo ocupe todo el espacio
+            size: [85.6 * 2.83, 54 * 2.83], // Tamaño carnet en puntos
+            margin: 0,
         });
 
-        // 4. Conectar el stream del PDF directamente al objeto de respuesta (res)
+        // 4. Conectar el stream del PDF a la respuesta
         doc.pipe(res);
 
-        // Rutas absolutas para las imágenes
-        // Asumiendo que 'imagenes' está al mismo nivel que 'controllers' dentro de 'src'
+        // Rutas de las plantillas de fondo
         const frontalImagePath = path.join(__dirname, '..', 'imagenes', 'frontal.png');
         const posteriorImagePath = path.join(__dirname, '..', 'imagenes', 'posterior.png');
 
-        let frontalImageBuffer;
-        let posteriorImageBuffer;
-
-        // Cargar las imágenes como buffers
-        try {
-            frontalImageBuffer = fs.readFileSync(frontalImagePath);
-            posteriorImageBuffer = fs.readFileSync(posteriorImagePath);
-        } catch (readErr) {
-            console.error('Error al leer las imágenes de fondo:', readErr);
-            // Si no se pueden leer las imágenes, puedes enviar un error o un PDF simple
-            if (!res.headersSent) {
-                return res.status(500).json({
-                    error: 'Error interno del servidor: No se pudieron cargar las imágenes de fondo del carnet.',
-                    details: readErr.message
-                });
-            }
-            doc.end(); // Asegúrate de finalizar el documento si ya se ha pipeado
-            return; // Salir de la función
-        }
+        const frontalImageBuffer = fs.readFileSync(frontalImagePath);
+        const posteriorImageBuffer = fs.readFileSync(posteriorImagePath);
 
         // --- Página Frontal del Carnet ---
         doc.image(frontalImageBuffer, 0, 0, { width: doc.page.width, height: doc.page.height });
 
-        // Posicionar los datos sobre la imagen frontal
-        // Ajusta estas coordenadas (x, y) y tamaños de fuente según el diseño de tu imagen frontal
-        doc.fillColor('black'); // Color del texto
+      
+        // =================================================================
+        // NUEVO: AÑADIR LA FOTOGRAFÍA DE LA PERSONA
+        // =================================================================
+        // Leemos la foto que multer subió temporalmente a la carpeta 'uploads'
+        const fotoBuffer = fs.readFileSync(fotoFile.path);
 
-        // Nombre del cliente (Jhony alexander Noriega Méndez)
-        doc.fontSize(9) // Puedes ajustar el tamaño de la fuente
-            .text(nombre, 8, 60, { // Coordenadas estimadas para el nombre
-                width: 150, // Ancho máximo para el texto
-                align: 'center'
-            });
+        // Define la posición (x, y) y el tamaño (width, height) de la foto en el carnet.
+        // ¡¡DEBES AJUSTAR ESTOS VALORES SEGÚN TU DISEÑO!!
+        const fotoOptions = {
+            width: 65,  // Ancho fijo
+            height: 80, // Altura fija
+            align: 'center',
+            valign: 'center'
+        };
+        // Coordenadas x, y (esquina superior izquierda donde se pondrá la foto)
+           if (fotoFile) {
+            const fotoBuffer = fs.readFileSync(fotoFile.path);
+            const fotoOptions = { width: 65, height: 80, align: 'center', valign: 'center' };
+            doc.image(fotoBuffer, 155, 40, fotoOptions);
+        }
+        
 
-        // Número de Documento (C.C/1028941528)
-        doc.fontSize(7)
-            .text(numeroDocumento, 75, 73, { // Coordenadas estimadas para el número de documento
-                width: 150,
-                align: 'left'
-            });
+        // =================================================================
 
-        // Tipo de Documento (Puedes omitirlo si el diseño no lo muestra explícitamente o inferirlo del número)
+        // Posicionar los datos de texto sobre la imagen frontal
+        doc.fillColor('black');
+
+        // Nombre
+        doc.fontSize(9).text(nombre, 8, 60, { width: 150, align: 'center' });
+        
+        // Documento
         doc.fontSize(7).text(tipoDocumento, 55, 73, { width: 150, align: 'left' });
+        doc.fontSize(7).text(numeroDocumento, 75, 73, { width: 150, align: 'left' });
 
-        // Fecha de Emisión (F. EM 16/07/2025)
-        const fechaActual = new Date().toLocaleDateString('es-CO', {
-            year: 'numeric',
-            month: '2-digit', // Formato MM
-            day: '2-digit',   // Formato DD
-        }).replace(/\//g, '/'); // Asegura el formato DD/MM/YYYY o similar
-        doc.fontSize(6)
-            .text(fechaActual, 197, 133, { // Coordenadas estimadas para la fecha de emisión
-                width: 100,
-                align: 'left'
-            });
-
+        // Fecha de Emisión
+        const fechaActual = new Date().toLocaleDateString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '/');
+        doc.fontSize(6).text(fechaActual, 197, 133, { width: 100, align: 'left' });
+        
         // --- Página Posterior del Carnet ---
-        doc.addPage({
-            size: [85.6 * 2.83, 54 * 2.83],
-            margin: 0,
-        });
-
+        doc.addPage({ size: [85.6 * 2.83, 54 * 2.83], margin: 0 });
         doc.image(posteriorImageBuffer, 0, 0, { width: doc.page.width, height: doc.page.height });
 
-        // Posicionar los datos sobre la imagen posterior (ejemplo, ajusta según tu diseño)
-        // Fecha de Vencimiento (VENCE: 16/07/2026)
-        const fechaVencimiento = new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toLocaleDateString('es-CO', {
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-        }).replace(/\//g, '/');
-        
-        doc.fillColor('white'); // Restablece el color del texto si lo cambiaste
-        doc.fontSize(7)
-            .text(fechaVencimiento, 33, 137, { // Coordenadas estimadas para la fecha de vencimiento en el reverso
-                width: 100,
-                align: 'left'
-            });
-        
-        // Puedes añadir aquí otros datos del reverso si tu diseño lo requiere,
-        // como los módulos de capacitación, número de contacto, etc.
-        // Basado en el PDF de ejemplo, los módulos son parte de la imagen de fondo,
-        // pero podrías añadir el número WAAG1282022 y el nombre del firmante si fueran dinámicos.
-        // doc.fontSize(8).text('WAAG1282022', X, Y);
-        // doc.fontSize(8).text('WILLIAM ARMANDO ALZATE G.', X, Y);
+        // Fecha de Vencimiento
+        const fechaVencimiento = new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toLocaleDateString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '/');
+        doc.fillColor('white').fontSize(7).text(fechaVencimiento, 33, 137, { width: 100, align: 'left' });
 
-
-        // Finalizar el documento y enviarlo a la respuesta
+        // Finalizar el documento
         doc.end();
-
         console.log(`Carnet PDF generado y enviado para: ${nombre}`);
 
     } catch (err) {
         console.error('Error al generar el carnet:', err);
-        // Si ocurre un error, asegúrate de que la respuesta no se haya enviado ya como PDF
         if (!res.headersSent) {
             res.status(500).json({
                 error: 'Error interno del servidor al generar el carnet.',
                 details: err.message,
             });
         }
+    } finally {
+        // NUEVO: LIMPIEZA DEL ARCHIVO TEMPORAL
+        // Es MUY IMPORTANTE eliminar la foto subida para no saturar el disco del servidor.
+        // El bloque 'finally' asegura que esto se ejecute incluso si hay un error.
+        if (fotoFile) {
+            fs.unlinkSync(fotoFile.path);
+            console.log(`Archivo temporal ${fotoFile.path} eliminado.`);
+        }
     }
 };
+;
 
 // Exporta ambos controladores para que estén disponibles en tus rutas
 export {
