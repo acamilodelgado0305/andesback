@@ -135,94 +135,69 @@ const generarCertificadoController = async (req, res) => {
 // Controlador para generar un CARNET
 // //////////////////////////////////////////////////////////////////////////////////
 const generarCarnetController = async (req, res) => {
-    // MODIFICADO: Los datos de texto vienen de req.body
     const { nombre, numeroDocumento, tipoDocumento } = req.body;
-    
-    // NUEVO: El archivo de la foto viene de req.file gracias a multer
-    const fotoFile = req.file;
+    const fotoFile = req.file; // fotoFile será 'undefined' si no se envía foto, y eso está bien.
 
     try {
-        // 1. Validar los campos requeridos, incluyendo la foto
         if (!nombre || !numeroDocumento || !tipoDocumento) {
             return res.status(400).json({ error: 'Nombre, número de documento y tipo de documento son requeridos.' });
         }
-        // NUEVO: Validar que la foto se haya subido
-      
 
-        console.log(`Solicitud de carnet para: ${nombre} con foto: ${fotoFile.originalname}`);
+        // --- CORREGIDO: El console.log ahora es condicional ---
+        // Se registra una cosa si hay foto, y otra si no la hay.
+        if (fotoFile) {
+            console.log(`Solicitud de carnet para: ${nombre} con foto: ${fotoFile.originalname}`);
+        } else {
+            console.log(`Solicitud de carnet para: ${nombre} (sin foto adjunta).`);
+        }
 
-        // 2. Configurar la respuesta HTTP para un PDF
+        // --- Configuración del PDF (sin cambios) ---
         const fileName = `Carnet_${nombre.replace(/\s/g, '_')}_${numeroDocumento}.pdf`;
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
 
-        // 3. Crear un nuevo documento PDF
         const doc = new PDFDocument({
-            size: [85.6 * 2.83, 54 * 2.83], // Tamaño carnet en puntos
+            size: [85.6 * 2.83, 54 * 2.83],
             margin: 0,
         });
 
-        // 4. Conectar el stream del PDF a la respuesta
         doc.pipe(res);
 
-        // Rutas de las plantillas de fondo
+        // --- Carga de imágenes de fondo (sin cambios) ---
         const frontalImagePath = path.join(__dirname, '..', 'imagenes', 'frontal.png');
         const posteriorImagePath = path.join(__dirname, '..', 'imagenes', 'posterior.png');
-
         const frontalImageBuffer = fs.readFileSync(frontalImagePath);
         const posteriorImageBuffer = fs.readFileSync(posteriorImagePath);
 
-        // --- Página Frontal del Carnet ---
+        // --- Página Frontal del Carnet (sin cambios) ---
         doc.image(frontalImageBuffer, 0, 0, { width: doc.page.width, height: doc.page.height });
 
-      
-        // =================================================================
-        // NUEVO: AÑADIR LA FOTOGRAFÍA DE LA PERSONA
-        // =================================================================
-        // Leemos la foto que multer subió temporalmente a la carpeta 'uploads'
-        const fotoBuffer = fs.readFileSync(fotoFile.path);
+        // --- ELIMINADO: Se quitó el bloque de código redundante de aquí ---
+        // Se eliminó la línea "const fotoBuffer = fs.readFileSync(fotoFile.path);" que causaría el segundo error.
 
-        // Define la posición (x, y) y el tamaño (width, height) de la foto en el carnet.
-        // ¡¡DEBES AJUSTAR ESTOS VALORES SEGÚN TU DISEÑO!!
-        const fotoOptions = {
-            width: 65,  // Ancho fijo
-            height: 80, // Altura fija
-            align: 'center',
-            valign: 'center'
-        };
-        // Coordenadas x, y (esquina superior izquierda donde se pondrá la foto)
-           if (fotoFile) {
+        // --- Lógica para añadir la foto (tu bloque 'if' ya estaba correcto) ---
+        // Esta parte solo se ejecuta si 'fotoFile' existe, lo cual es perfecto.
+        if (fotoFile) {
             const fotoBuffer = fs.readFileSync(fotoFile.path);
             const fotoOptions = { width: 65, height: 80, align: 'center', valign: 'center' };
             doc.image(fotoBuffer, 155, 40, fotoOptions);
         }
-        
 
-        // =================================================================
-
-        // Posicionar los datos de texto sobre la imagen frontal
+        // --- El resto de la lógica para añadir texto y la página posterior se mantiene igual ---
         doc.fillColor('black');
-
-        // Nombre
         doc.fontSize(9).text(nombre, 8, 60, { width: 150, align: 'center' });
-        
-        // Documento
         doc.fontSize(7).text(tipoDocumento, 55, 73, { width: 150, align: 'left' });
         doc.fontSize(7).text(numeroDocumento, 75, 73, { width: 150, align: 'left' });
 
-        // Fecha de Emisión
         const fechaActual = new Date().toLocaleDateString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '/');
         doc.fontSize(6).text(fechaActual, 197, 133, { width: 100, align: 'left' });
-        
-        // --- Página Posterior del Carnet ---
+
         doc.addPage({ size: [85.6 * 2.83, 54 * 2.83], margin: 0 });
         doc.image(posteriorImageBuffer, 0, 0, { width: doc.page.width, height: doc.page.height });
 
-        // Fecha de Vencimiento
         const fechaVencimiento = new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toLocaleDateString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '/');
         doc.fillColor('white').fontSize(7).text(fechaVencimiento, 33, 137, { width: 100, align: 'left' });
 
-        // Finalizar el documento
         doc.end();
         console.log(`Carnet PDF generado y enviado para: ${nombre}`);
 
@@ -235,9 +210,7 @@ const generarCarnetController = async (req, res) => {
             });
         }
     } finally {
-        // NUEVO: LIMPIEZA DEL ARCHIVO TEMPORAL
-        // Es MUY IMPORTANTE eliminar la foto subida para no saturar el disco del servidor.
-        // El bloque 'finally' asegura que esto se ejecute incluso si hay un error.
+        // Esta parte ya estaba correcta, solo borra el archivo si existe.
         if (fotoFile) {
             fs.unlinkSync(fotoFile.path);
             console.log(`Archivo temporal ${fotoFile.path} eliminado.`);
