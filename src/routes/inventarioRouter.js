@@ -22,7 +22,7 @@ router.post('/inventario', createInventarioController);      // Crear un nuevo i
 router.get('/inventario', getInventarioController);         // Obtener todos los items de inventario del usuario
 router.get('/inventario/:id', getInventarioByIdController); // Obtener un item de inventario por su ID
 router.put('/inventario/:id', updateInventarioController);  // Actualizar un item de inventario por su ID
-router.delete('/inventario/:id', deleteInventarioController); // Eliminar un item de inventario por su ID
+router.delete('/inventario', deleteInventarioController); // Eliminar un item de inventario por su ID
 router.get('/inventario/user/:userId', getInventarioBySpecificUserController); // Nueva ruta
 
 export default router;

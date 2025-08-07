@@ -38,9 +38,20 @@ const updateInventarioItem = async (id, nombre, monto, descripcion) => {
 };
 
 // Eliminar un item de inventario
-const deleteInventarioItem = async (id) => {
-  const result = await pool.query('DELETE FROM inventario WHERE id = $1 RETURNING *', [id]);
-  return result.rows[0];
+export const deleteInventarioItemsByIds = async (ids) => {
+  const query = `
+    DELETE FROM "public"."inventario"
+    WHERE id = ANY($1::int[]);
+  `;
+  // Se eliminó la condición "AND user_id = $2"
+
+  // El array de valores ahora solo necesita los IDs
+  const values = [ids]; 
+  
+  const result = await pool.query(query, values);
+  
+  // `result.rowCount` devuelve el número de filas eliminadas.
+  return result.rowCount;
 };
 
 const getInventarioItemsByUserId = async (userId) => {
@@ -48,4 +59,4 @@ const getInventarioItemsByUserId = async (userId) => {
   return result.rows;
 };
 
-export { createInventarioItem, getInventarioItems, getInventarioItemById, updateInventarioItem, deleteInventarioItem, getInventarioItemsByUserId };
+export { createInventarioItem, getInventarioItems, getInventarioItemById, updateInventarioItem, getInventarioItemsByUserId };
