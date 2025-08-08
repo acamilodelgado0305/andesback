@@ -473,63 +473,67 @@ const getStudentsByProgramaIdController = async (req, res) => {
 const getStudentsByProgramTypeController = async (req, res) => {
     const { tipo } = req.params; // 'bachillerato' o 'tecnicos'
 
-    let programIdForBachillerato;
-    try {
-        // Primero, obtenemos el ID del programa 'Validación de bachillerato'
-        const bachilleratoProgram = await pool.query(
-            "SELECT id FROM inventario WHERE nombre = 'Validación de bachillerato';"
-        );
-        if (bachilleratoProgram.rows.length === 0) {
-            return res.status(404).json({ error: 'Programa "Validación de bachillerato" no encontrado en la base de datos.' });
-        }
-        programIdForBachillerato = bachilleratoProgram.rows[0].id;
-    } catch (err) {
-        handleServerError(res, err, 'Error al buscar el ID del programa de bachillerato.');
-        return;
-    }
-
-    let queryCondition = '';
-    if (tipo === 'bachillerato') {
-        queryCondition = `WHERE ep.programa_id = ${programIdForBachillerato}`;
-    } else if (tipo === 'tecnicos') {
-        queryCondition = `WHERE ep.programa_id != ${programIdForBachillerato}`;
-    } else {
+    if (tipo !== 'bachillerato' && tipo !== 'tecnicos') {
         return res.status(400).json({ error: 'Tipo de programa inválido. Use "bachillerato" o "tecnicos".' });
     }
 
     try {
+        // 1. Obtenemos TODOS los IDs de los programas que contienen la palabra "bachillerato".
+        // Usamos ILIKE para que la búsqueda no distinga entre mayúsculas y minúsculas.
+        const bachilleratoPrograms = await pool.query(
+            "SELECT id FROM inventario WHERE nombre ILIKE '%bachillerato%';"
+        );
+
+        if (bachilleratoPrograms.rows.length === 0) {
+            // Si el tipo es 'bachillerato' y no encontramos programas, devolvemos un array vacío.
+            if (tipo === 'bachillerato') {
+                return res.status(200).json([]);
+            }
+            // Si es 'tecnicos', la condición de abajo manejará traerlos todos.
+        }
+
+        const bachilleratoProgramIds = bachilleratoPrograms.rows.map(p => p.id);
+
+        // 2. Construimos la condición de la consulta SQL dinámicamente.
+        let queryCondition = '';
+        if (tipo === 'bachillerato') {
+            // Usamos IN para buscar estudiantes cuyo programa_id esté en nuestra lista de IDs.
+            // Si no hay IDs de bachillerato, la consulta no devolverá nada, lo cual es correcto.
+            queryCondition = bachilleratoProgramIds.length > 0 ? `WHERE s.programa_id IN (${bachilleratoProgramIds.join(',')})` : 'WHERE 1=0'; // Condición falsa para no devolver nada
+        } else { // tipo === 'tecnicos'
+            // Usamos NOT IN para excluir a los estudiantes de bachillerato.
+            // Si no hay IDs de bachillerato, la condición traerá a todos los estudiantes.
+            queryCondition = bachilleratoProgramIds.length > 0 ? `WHERE s.programa_id NOT IN (${bachilleratoProgramIds.join(',')})` : '';
+        }
+
+        // 3. Ejecutamos la consulta principal, ahora simplificada.
+        // Nota: He quitado la tabla 'estudiante_programas' y uso la relación directa.
         const query = `
             SELECT
                 s.*,
                 u.name AS coordinador_nombre,
-                COALESCE(
-                    json_agg(
-                        json_build_object(
-                            'programa_id', i.id,
-                            'nombre_programa', i.nombre,
-                            'monto_programa', i.monto
-                        )
-                        ORDER BY i.nombre
-                    ) FILTER (WHERE i.id IS NOT NULL),
-                    '[]'::json
-                ) AS programas_asociados
+                -- Obtenemos el programa directamente desde la tabla de inventario
+                json_build_object(
+                    'programa_id', i.id,
+                    'nombre_programa', i.nombre,
+                    'monto_programa', i.monto
+                ) AS programa_asociado
             FROM
                 students s
             LEFT JOIN
-                estudiante_programas ep ON s.id = ep.estudiante_id
-            LEFT JOIN
-                inventario i ON ep.programa_id = i.id
+                inventario i ON s.programa_id = i.id
             LEFT JOIN
                 users u ON s.coordinador_id = u.id
-            ${queryCondition} -- Condición para filtrar por tipo de programa
-            GROUP BY
-                s.id, u.name
+            ${queryCondition} -- Aplicamos nuestra condición dinámica
             ORDER BY
                 s.nombre, s.apellido;
         `;
+        
         const result = await pool.query(query);
         res.status(200).json(result.rows);
+
     } catch (err) {
+        // Manejo de errores (asumiendo que tienes una función handleServerError)
         handleServerError(res, err, `Error obteniendo estudiantes por tipo de programa (${tipo}).`);
     }
 };
