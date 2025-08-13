@@ -478,38 +478,49 @@ const getStudentsByProgramTypeController = async (req, res) => {
     }
 
     try {
-        // 1. Determinamos el operador SQL ('IN' o 'NOT IN') basado en el tipo.
-        const operator = tipo === 'bachillerato' ? 'IN' : 'NOT IN';
+        // Determinamos el operador SQL ('IN' o 'NOT IN') basado en el parámetro 'tipo'.
+        const programCondition = tipo === 'bachillerato' ? 'IN' : 'NOT IN';
 
-        // 2. Creamos una única consulta parametrizada que es más segura y eficiente.
-        //    Utiliza una subconsulta para encontrar los IDs de los programas de bachillerato.
+        // Creamos una única consulta que ahora une las tres tablas.
+        // La lógica central es encontrar los estudiantes cuyo ID exista en la tabla
+        // intermedia `estudiante_programas`, cumpliendo la condición del tipo de programa.
         const query = `
-            SELECT
-                s.id,      -- Seleccionamos solo las columnas que necesitas.
+            SELECT DISTINCT -- Usamos DISTINCT para asegurar que cada estudiante aparezca solo una vez
+                s.id,
                 s.nombre,
-                s.apellido -- Asumo que también querrás el apellido junto al nombre.
+                s.apellido,
+                s.email,
+                s.telefono_whatsapp,
+                s.activo,
+                i.nombre AS nombre_programa -- Opcional: Incluimos el nombre del programa para contexto
             FROM
                 students s
+            INNER JOIN
+                estudiante_programas ep ON s.id = ep.estudiante_id
+            INNER JOIN
+                inventario i ON ep.programa_id = i.id
             WHERE
-                s.programa_id ${operator} (
-                    SELECT id FROM inventario WHERE nombre ILIKE $1
+                s.id ${programCondition} (
+                    -- Subconsulta: Obtiene todos los IDs de estudiantes asociados a programas de bachillerato
+                    SELECT DISTINCT estudiante_id
+                    FROM estudiante_programas
+                    WHERE programa_id IN (
+                        -- Sub-subconsulta: Obtiene todos los IDs de los programas que son de bachillerato
+                        SELECT id FROM inventario WHERE nombre ILIKE $1
+                    )
                 )
             ORDER BY
                 s.nombre, s.apellido;
         `;
 
-        // El valor para el placeholder $1. Usamos '%' para el matching con ILIKE.
         const values = ['%bachillerato%'];
 
-        // 3. Ejecutamos la consulta única.
         const result = await pool.query(query, values);
 
         res.status(200).json(result.rows);
 
     } catch (err) {
-        // Es una buena práctica loguear el error en el servidor para depuración.
         console.error(`Error en getStudentsByProgramTypeController (${tipo}):`, err);
-        // Asumo que tienes un manejador de errores estandarizado.
         handleServerError(res, err, `Error obteniendo estudiantes por tipo de programa.`);
     }
 };
