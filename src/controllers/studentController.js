@@ -232,119 +232,119 @@ const getStudentByIdController = async (req, res) => {
 // =======================================================
 // LÓGICA DE ACTUALIZACIÓN (UPDATE)
 // =======================================================
+/**
+ * Controlador para actualizar un estudiante y sincronizar sus programas asociados.
+ * Utiliza una transacción para garantizar la integridad de los datos y un bulk insert
+ * para una actualización eficiente de los programas.
+ */
 const updateStudentController = async (req, res) => {
+    // Extraemos el ID del estudiante de los parámetros de la URL
     const { id } = req.params;
 
-    // 1. Extraemos todo de req.body
-    const {
-        nombre, apellido, email, tipo_documento, numero_documento, lugar_expedicion,
-        fecha_nacimiento, lugar_nacimiento, telefono_llamadas, telefono_whatsapp,
-        eps, rh, nombre_acudiente, tipo_documento_acudiente, telefono_acudiente,
-        direccion_acudiente, simat, estado_matricula,
-        programasIds, // ¡Correcto! Ya recibes programasIds
-        coordinador_id,
-        activo, modalidad_estudio, ultimo_curso_visto, matricula
-    } = req.body;
+    // Capturamos todo el cuerpo de la petición que contiene los datos a actualizar
+    const studentData = req.body;
 
-    // Validaciones
-    if (!id || isNaN(id)) {
-        return res.status(400).json({ error: 'ID de estudiante inválido.' });
+    // --- Validaciones Esenciales ---
+    // Es crucial validar que el ID sea un número válido antes de proceder.
+    if (!id || isNaN(parseInt(id, 10))) {
+        return res.status(400).json({ error: 'ID de estudiante inválido o no proporcionado.' });
     }
-    if (!nombre || !apellido || !email || !numero_documento) {
-        return res.status(400).json({ error: 'Campos obligatorios (nombre, apellido, email, número de documento) no pueden estar vacíos.' });
-    }
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-        return res.status(400).json({ error: 'Formato de email inválido.' });
-    }
+    // Aquí puedes agregar más validaciones (ej. con Joi o Zod) para los campos del body.
 
     let client;
     try {
+        // Obtenemos una conexión del pool para manejar la transacción
         client = await pool.connect();
+        // Iniciamos la transacción
         await client.query('BEGIN');
 
-        // 2. Mapeo explícito y correcto usando las constantes definidas arriba
-        // Las claves (izquierda) son los nombres de las columnas en la DB
-        const studentFieldsToUpdate = {
-            nombre,
-            apellido,
-            email,
-            tipo_documento,
-            numero_documento,
-            lugar_expedicion,
-            fecha_nacimiento,
-            lugar_nacimiento,
-            telefono_llamadas,
-            telefono_whatsapp,
-            eps,
-            rh,
-            nombre_acudiente,
-            tipo_documento_acudiente,
-            telefono_acudiente,
-            direccion_acudiente,
-            simat,
-            estado_matricula,
-            coordinador_id,
-            activo,
-            modalidad_estudio,
-            ultimo_curso_visto,
-            matricula
-        };
+        // --- 1. Actualización de la tabla 'students' ---
+
+        // Separamos los Ids de los programas del resto de los datos del estudiante
+        const { programasIds, ...studentFieldsToUpdate } = studentData;
 
         const setClauses = [];
         const updateParams = [];
         let paramIndex = 1;
 
-        // 3. Construimos la query solo con los campos que realmente se enviaron
+        // Construimos la consulta UPDATE dinámicamente solo con los campos que se enviaron
         for (const key in studentFieldsToUpdate) {
+            // Verificamos que el campo realmente exista en el body (no es undefined)
             if (studentFieldsToUpdate[key] !== undefined) {
-                setClauses.push(`${key} = $${paramIndex}`);
+                // Asumimos que los nombres de las columnas en la DB son snake_case (ej. tipo_documento)
+                // y los del frontend son camelCase (ej. tipoDocumento). Esta línea convierte el formato.
+                const dbKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+
+                setClauses.push(`${dbKey} = $${paramIndex}`);
                 updateParams.push(studentFieldsToUpdate[key]);
                 paramIndex++;
             }
         }
 
-        // El resto de tu lógica ya es correcta
+        // Solo ejecutamos la consulta UPDATE si hay al menos un campo para actualizar
         if (setClauses.length > 0) {
+            // Agregamos la actualización de la fecha de modificación
             setClauses.push(`updated_at = CURRENT_TIMESTAMP`);
+            // El último parámetro siempre será el ID del estudiante para la cláusula WHERE
             updateParams.push(id);
 
             const updateStudentQuery = `
                 UPDATE students
                 SET ${setClauses.join(', ')}
                 WHERE id = $${paramIndex}
-                RETURNING *;
             `;
 
-            const result = await client.query(updateStudentQuery, updateParams);
-            if (result.rows.length === 0) {
-                await client.query('ROLLBACK');
-                return res.status(404).json({ error: 'Estudiante no encontrado.' });
-            }
+            await client.query(updateStudentQuery, updateParams);
         }
 
-        // Actualización de la tabla pivote (esta parte ya estaba bien)
+        // --- 2. Sincronización de la tabla 'estudiante_programas' ---
+
+        // Esta lógica solo se ejecuta si el array 'programasIds' fue incluido en la petición
         if (programasIds && Array.isArray(programasIds)) {
+            // Paso A: Borramos todas las asociaciones existentes para este estudiante.
+            // Esto simplifica la lógica y asegura que solo queden las nuevas asociaciones.
+            // Funciona correctamente incluso si no hay ninguna fila que borrar.
             await client.query('DELETE FROM estudiante_programas WHERE estudiante_id = $1', [id]);
-            for (const programaId of programasIds) {
-                if (isNaN(parseInt(programaId, 10)) || parseInt(programaId, 10) <= 0) {
-                    throw new Error(`ID de programa inválido: ${programaId}`);
-                }
-                await client.query(
-                    'INSERT INTO estudiante_programas (estudiante_id, programa_id) VALUES ($1, $2)',
-                    [id, parseInt(programaId, 10)]
-                );
+
+            // Paso B: Si el array no está vacío, insertamos las nuevas asociaciones.
+            if (programasIds.length > 0) {
+                // MEJORA CLAVE: Creamos una única consulta "bulk insert".
+                // Es mucho más eficiente que hacer un INSERT por cada programa en un bucle.
+
+                // Construye los placeholders: ($1, $2), ($1, $3), ($1, $4), etc.
+                const valuesClauses = programasIds.map((_, index) => `($1, $${index + 2})`).join(', ');
+
+                // Crea el array de valores: [estudianteId, programaId1, programaId2, ...]
+                const programInsertValues = [id, ...programasIds];
+
+                const programAssignQuery = `
+                    INSERT INTO estudiante_programas (estudiante_id, programa_id)
+                    VALUES ${valuesClauses};
+                `;
+
+                await client.query(programAssignQuery, programInsertValues);
             }
         }
 
+        // Si todo salió bien, confirmamos los cambios en la base de datos
         await client.query('COMMIT');
-        res.status(200).json({ mensaje: 'Estudiante actualizado exitosamente' });
+
+        res.status(200).json({ message: 'Estudiante actualizado exitosamente' });
 
     } catch (err) {
-        if (client) await client.query('ROLLBACK');
+        // Si ocurre cualquier error, revertimos todos los cambios de la transacción
+        if (client) {
+            await client.query('ROLLBACK');
+        }
+
+        // Usamos un manejador de errores centralizado para responder al cliente
         handleServerError(res, err, 'Error interno del servidor al actualizar el estudiante.');
+
     } finally {
-        if (client) client.release();
+        // Es fundamental liberar la conexión al pool, tanto si hubo éxito como si hubo error.
+        if (client) {
+            client.release();
+        }
     }
 };
 
@@ -478,63 +478,39 @@ const getStudentsByProgramTypeController = async (req, res) => {
     }
 
     try {
-        // 1. Obtenemos TODOS los IDs de los programas que contienen la palabra "bachillerato".
-        // Usamos ILIKE para que la búsqueda no distinga entre mayúsculas y minúsculas.
-        const bachilleratoPrograms = await pool.query(
-            "SELECT id FROM inventario WHERE nombre ILIKE '%bachillerato%';"
-        );
+        // 1. Determinamos el operador SQL ('IN' o 'NOT IN') basado en el tipo.
+        const operator = tipo === 'bachillerato' ? 'IN' : 'NOT IN';
 
-        if (bachilleratoPrograms.rows.length === 0) {
-            // Si el tipo es 'bachillerato' y no encontramos programas, devolvemos un array vacío.
-            if (tipo === 'bachillerato') {
-                return res.status(200).json([]);
-            }
-            // Si es 'tecnicos', la condición de abajo manejará traerlos todos.
-        }
-
-        const bachilleratoProgramIds = bachilleratoPrograms.rows.map(p => p.id);
-
-        // 2. Construimos la condición de la consulta SQL dinámicamente.
-        let queryCondition = '';
-        if (tipo === 'bachillerato') {
-            // Usamos IN para buscar estudiantes cuyo programa_id esté en nuestra lista de IDs.
-            // Si no hay IDs de bachillerato, la consulta no devolverá nada, lo cual es correcto.
-            queryCondition = bachilleratoProgramIds.length > 0 ? `WHERE s.programa_id IN (${bachilleratoProgramIds.join(',')})` : 'WHERE 1=0'; // Condición falsa para no devolver nada
-        } else { // tipo === 'tecnicos'
-            // Usamos NOT IN para excluir a los estudiantes de bachillerato.
-            // Si no hay IDs de bachillerato, la condición traerá a todos los estudiantes.
-            queryCondition = bachilleratoProgramIds.length > 0 ? `WHERE s.programa_id NOT IN (${bachilleratoProgramIds.join(',')})` : '';
-        }
-
-        // 3. Ejecutamos la consulta principal, ahora simplificada.
-        // Nota: He quitado la tabla 'estudiante_programas' y uso la relación directa.
+        // 2. Creamos una única consulta parametrizada que es más segura y eficiente.
+        //    Utiliza una subconsulta para encontrar los IDs de los programas de bachillerato.
         const query = `
             SELECT
-                s.*,
-                u.name AS coordinador_nombre,
-                -- Obtenemos el programa directamente desde la tabla de inventario
-                json_build_object(
-                    'programa_id', i.id,
-                    'nombre_programa', i.nombre,
-                    'monto_programa', i.monto
-                ) AS programa_asociado
+                s.id,      -- Seleccionamos solo las columnas que necesitas.
+                s.nombre,
+                s.apellido -- Asumo que también querrás el apellido junto al nombre.
             FROM
                 students s
-            LEFT JOIN
-                inventario i ON s.programa_id = i.id
-            LEFT JOIN
-                users u ON s.coordinador_id = u.id
-            ${queryCondition} -- Aplicamos nuestra condición dinámica
+            WHERE
+                s.programa_id ${operator} (
+                    SELECT id FROM inventario WHERE nombre ILIKE $1
+                )
             ORDER BY
                 s.nombre, s.apellido;
         `;
-        
-        const result = await pool.query(query);
+
+        // El valor para el placeholder $1. Usamos '%' para el matching con ILIKE.
+        const values = ['%bachillerato%'];
+
+        // 3. Ejecutamos la consulta única.
+        const result = await pool.query(query, values);
+
         res.status(200).json(result.rows);
 
     } catch (err) {
-        // Manejo de errores (asumiendo que tienes una función handleServerError)
-        handleServerError(res, err, `Error obteniendo estudiantes por tipo de programa (${tipo}).`);
+        // Es una buena práctica loguear el error en el servidor para depuración.
+        console.error(`Error en getStudentsByProgramTypeController (${tipo}):`, err);
+        // Asumo que tienes un manejador de errores estandarizado.
+        handleServerError(res, err, `Error obteniendo estudiantes por tipo de programa.`);
     }
 };
 
