@@ -107,7 +107,7 @@ const generarCertificadoController = async (req, res) => {
            });
 
              doc.fontSize(15)
-           .text(fechaActual, -80, 620, { 
+           .text(fechaActual, -90, 620, { 
                align: 'center',
                width: doc.page.width,
            });
