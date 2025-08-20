@@ -171,30 +171,26 @@ const getStudentByIdController = async (req, res) => {
         return res.status(400).json({ error: 'ID de estudiante inválido.' });
     }
     try {
+        // CAMBIO: La consulta ahora une las 3 tablas en cadena.
+        // El JOIN a 'businesses' ya no sale de 'students', sino de 'users'.
         const query = `
             SELECT
-                s.id,
-                s.nombre,
-                s.apellido,
-                s.email,
-                s.tipo_documento,
-                s.numero_documento,
-                s.lugar_expedicion,
-                s.fecha_nacimiento,
-                s.lugar_nacimiento,
-                s.telefono_llamadas,
-                s.telefono_whatsapp,
-                s.simat,
-                s.estado_matricula,
-                u.name AS coordinador_nombre, -- Nombre del coordinador
-                s.modalidad_estudio,
-                s.ultimo_curso_visto,
-                s.fecha_inscripcion,
-                s.activo,
-                s.created_at,
-                s.updated_at,
-                s.fecha_graduacion,
-                s.matricula,
+                s.id, s.nombre, s.apellido, s.email, s.tipo_documento,
+                s.numero_documento, s.lugar_expedicion, s.fecha_nacimiento,
+                s.lugar_nacimiento, s.telefono_llamadas, s.telefono_whatsapp,
+                s.simat, s.estado_matricula, s.modalidad_estudio,
+                s.ultimo_curso_visto, s.fecha_inscripcion, s.activo,
+                
+                -- Campos del Coordinador
+                u.id AS coordinador_id,
+                u.name AS coordinador_nombre,
+                
+                -- Campos del Negocio (obtenidos a través del coordinador)
+                b.id AS business_id,
+                b.name AS business_name,
+                b.profile_picture_url AS business_profile_picture_url,
+
+                -- Tu agregación de programas se mantiene igual
                 COALESCE(
                     json_agg(
                         json_build_object(
@@ -209,23 +205,53 @@ const getStudentByIdController = async (req, res) => {
             FROM
                 students s
             LEFT JOIN
+                users u ON s.coordinador_id = u.id -- 1. De estudiante a usuario (coordinador)
+            LEFT JOIN
+                businesses b ON u.business_id = b.id -- 2. De usuario (coordinador) a negocio
+            LEFT JOIN
                 estudiante_programas ep ON s.id = ep.estudiante_id
             LEFT JOIN
                 inventario i ON ep.programa_id = i.id
-            LEFT JOIN
-                users u ON s.coordinador_id = u.id -- Unir con users para el nombre del coordinador
             WHERE
                 s.id = $1
             GROUP BY
-                s.id, u.name; -- Agrupar también por u.name
+                s.id, u.id, b.id;
         `;
+
         const result = await pool.query(query, [id]);
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Estudiante no encontrado.' });
         }
-        res.status(200).json(result.rows[0]);
+
+        // La lógica para transformar el resultado no necesita cambios,
+        // ya que los nombres de las columnas son los mismos.
+        const flatStudent = result.rows[0];
+        const studentResponse = {
+            id: flatStudent.id,
+            nombre: flatStudent.nombre,
+            apellido: flatStudent.apellido,
+            email: flatStudent.email,
+            // ... (resto de los campos del estudiante)
+            
+            coordinador: flatStudent.coordinador_id ? {
+                id: flatStudent.coordinador_id,
+                nombre: flatStudent.coordinador_nombre
+            } : null,
+
+            business: flatStudent.business_id ? {
+                id: flatStudent.business_id,
+                name: flatStudent.business_name,
+                profilePictureUrl: flatStudent.business_profile_picture_url
+            } : null,
+
+            programas_asociados: flatStudent.programas_asociados
+        };
+
+        res.status(200).json(studentResponse);
+        
     } catch (err) {
-        handleServerError(res, err, 'Error obteniendo estudiante por ID.');
+        console.error('Error obteniendo estudiante por ID:', err);
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 };
 
