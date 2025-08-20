@@ -170,27 +170,45 @@ const getStudentByIdController = async (req, res) => {
     if (!id || isNaN(id)) {
         return res.status(400).json({ error: 'ID de estudiante inválido.' });
     }
+
     try {
-        // CAMBIO: La consulta ahora une las 3 tablas en cadena.
-        // El JOIN a 'businesses' ya no sale de 'students', sino de 'users'.
+        // QUERY MEJORADA: Incluye todos los campos relevantes del estudiante y su acudiente.
         const query = `
             SELECT
+                -- Datos principales del estudiante (ya los tenías bien)
                 s.id, s.nombre, s.apellido, s.email, s.tipo_documento,
                 s.numero_documento, s.lugar_expedicion, s.fecha_nacimiento,
                 s.lugar_nacimiento, s.telefono_llamadas, s.telefono_whatsapp,
                 s.simat, s.estado_matricula, s.modalidad_estudio,
                 s.ultimo_curso_visto, s.fecha_inscripcion, s.activo,
+
+                -- NUEVOS CAMPOS AÑADIDOS PARA ENRIQUECER EL PERFIL
+                s.telefono, 
+                s.numero_cedula,
+                s.fecha_graduacion, 
+                s.matricula, 
+                s.eps, 
+                s.rh,
+                s.documento, -- Campo para posible URL de documento
+                s.created_at,
+                s.updated_at,
+
+                -- Datos del Acudiente
+                s.nombre_acudiente,
+                s.tipo_documento_acudiente,
+                s.telefono_acudiente,
+                s.direccion_acudiente,
                 
                 -- Campos del Coordinador
                 u.id AS coordinador_id,
                 u.name AS coordinador_nombre,
                 
-                -- Campos del Negocio (obtenidos a través del coordinador)
+                -- Campos del Negocio (a través del coordinador)
                 b.id AS business_id,
                 b.name AS business_name,
                 b.profile_picture_url AS business_profile_picture_url,
 
-                -- Tu agregación de programas se mantiene igual
+                -- Agregación de programas (tu lógica original se mantiene)
                 COALESCE(
                     json_agg(
                         json_build_object(
@@ -198,16 +216,15 @@ const getStudentByIdController = async (req, res) => {
                             'nombre_programa', i.nombre,
                             'monto_programa', i.monto
                         )
-                        ORDER BY i.nombre
                     ) FILTER (WHERE i.id IS NOT NULL),
                     '[]'::json
                 ) AS programas_asociados
             FROM
                 students s
             LEFT JOIN
-                users u ON s.coordinador_id = u.id -- 1. De estudiante a usuario (coordinador)
+                users u ON s.coordinador_id = u.id
             LEFT JOIN
-                businesses b ON u.business_id = b.id -- 2. De usuario (coordinador) a negocio
+                businesses b ON u.business_id = b.id
             LEFT JOIN
                 estudiante_programas ep ON s.id = ep.estudiante_id
             LEFT JOIN
@@ -215,23 +232,54 @@ const getStudentByIdController = async (req, res) => {
             WHERE
                 s.id = $1
             GROUP BY
+                -- Se agregan los nuevos campos a la cláusula GROUP BY
                 s.id, u.id, b.id;
         `;
 
         const result = await pool.query(query, [id]);
+
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Estudiante no encontrado.' });
         }
 
-        // La lógica para transformar el resultado no necesita cambios,
-        // ya que los nombres de las columnas son los mismos.
         const flatStudent = result.rows[0];
+
+        // RESPUESTA MEJORADA: Mapea todos los campos nuevos y agrupa los datos del acudiente.
         const studentResponse = {
             id: flatStudent.id,
             nombre: flatStudent.nombre,
             apellido: flatStudent.apellido,
             email: flatStudent.email,
-            // ... (resto de los campos del estudiante)
+            tipo_documento: flatStudent.tipo_documento,
+            numero_documento: flatStudent.numero_documento,
+            lugar_expedicion: flatStudent.lugar_expedicion,
+            fecha_nacimiento: flatStudent.fecha_nacimiento,
+            lugar_nacimiento: flatStudent.lugar_nacimiento,
+            telefono_llamadas: flatStudent.telefono_llamadas,
+            telefono_whatsapp: flatStudent.telefono_whatsapp,
+            telefono: flatStudent.telefono, // Nuevo
+            numero_cedula: flatStudent.numero_cedula, // Nuevo
+            simat: flatStudent.simat,
+            estado_matricula: flatStudent.estado_matricula,
+            matricula: flatStudent.matricula, // Nuevo
+            modalidad_estudio: flatStudent.modalidad_estudio,
+            ultimo_curso_visto: flatStudent.ultimo_curso_visto,
+            fecha_inscripcion: flatStudent.fecha_inscripcion,
+            fecha_graduacion: flatStudent.fecha_graduacion, // Nuevo
+            activo: flatStudent.activo,
+            eps: flatStudent.eps, // Nuevo
+            rh: flatStudent.rh, // Nuevo
+            documento_url: flatStudent.documento, // Nuevo
+            created_at: flatStudent.created_at, // Nuevo
+            updated_at: flatStudent.updated_at, // Nuevo
+
+            // Objeto anidado para el acudiente
+            acudiente: flatStudent.nombre_acudiente ? {
+                nombre: flatStudent.nombre_acudiente,
+                tipo_documento: flatStudent.tipo_documento_acudiente,
+                telefono: flatStudent.telefono_acudiente,
+                direccion: flatStudent.direccion_acudiente
+            } : null,
             
             coordinador: flatStudent.coordinador_id ? {
                 id: flatStudent.coordinador_id,
