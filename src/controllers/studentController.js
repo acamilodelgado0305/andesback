@@ -47,7 +47,8 @@ const createStudentController = async (req, res) => {
         return res.status(400).json({ error: 'ID de coordinador inválido o no proporcionado.' });
     }
 
-    const estadoMatriculaBoolean = (pagoMatricula === 'Pagado'); // 'Pagado' -> true, 'Pendiente' -> false
+    const estadoMatriculaBoolean = (pagoMatricula === 'Pagado'); // 'Pagado' -> true
+    const simatBoolean = (simat === 'Activo'); // ¡LÍNEA A AÑADIR! 'Activo' -> true
 
     let client;
     try {
@@ -72,7 +73,8 @@ const createStudentController = async (req, res) => {
             [
                 nombre, apellido, email, tipoDocumento, numeroDocumento, lugarExpedicion,
                 fechaNacimiento, lugarNacimiento, telefonoLlamadas, telefonoWhatsapp,
-                simat, estadoMatriculaBoolean, coordinador_id, modalidad_estudio,
+                simatBoolean, // ¡CAMBIO AQUÍ! Usar la variable booleana
+                estadoMatriculaBoolean, coordinador_id, modalidad_estudio,
                 ultimoCursoVisto, eps, rh, nombreAcudiente, tipoDocumentoAcudiente,
                 telefonoAcudiente, direccionAcudiente
             ]
@@ -280,7 +282,7 @@ const getStudentByIdController = async (req, res) => {
                 telefono: flatStudent.telefono_acudiente,
                 direccion: flatStudent.direccion_acudiente
             } : null,
-            
+
             coordinador: flatStudent.coordinador_id ? {
                 id: flatStudent.coordinador_id,
                 nombre: flatStudent.coordinador_nombre
@@ -296,7 +298,7 @@ const getStudentByIdController = async (req, res) => {
         };
 
         res.status(200).json(studentResponse);
-        
+
     } catch (err) {
         console.error('Error obteniendo estudiante por ID:', err);
         res.status(500).json({ error: 'Error interno del servidor' });
