@@ -24,7 +24,7 @@ app.set('port', PORT);
 app.use(cookieParser());
 app.use(cors({
     credentials: true,
-    origin: ['http://localhost:5173', 'https://andesfront.onrender.com', 'https://validaciondebachillerato.com.co', 'https://santasofia.vercel.app']
+    origin: ['http://localhost:5173', 'https://andesfront.onrender.com', 'https://quickcontrola.com', 'https://santasofia.vercel.app']
 }));
 app.use(express.json());
 
