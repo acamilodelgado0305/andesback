@@ -4,6 +4,8 @@
 import fetch from 'node-fetch';
 // Importación de pdfkit para la generación de PDFs
 import PDFDocument from 'pdfkit';
+import QRCode from 'qrcode';
+
 
 // Necesitamos 'fs' y 'path' para leer las imágenes de fondo
 import fs from 'fs';
@@ -18,104 +20,84 @@ const __dirname = path.dirname(__filename);
 
 // URL para el script que genera CERTIFICADOS (YA NO LA USAREMOS PARA EL CERTIFICADO LOCAL)
 
-
-// //////////////////////////////////////////////////////////////////////////////////
 // Controlador para generar un CERTIFICADO
 // //////////////////////////////////////////////////////////////////////////////////
 const generarCertificadoController = async (req, res) => {
-    // Los datos necesarios vienen del cuerpo de la solicitud POST
-    // AHORA DESESTRUCTURAMOS 'nombre' EN LUGAR DE 'nombreCliente'
-    const { nombre, numeroDocumento, tipoDocumento } = req.body; 
-    
-    // 1. Validar los campos requeridos
+    const { nombre, numeroDocumento, tipoDocumento } = req.body;
+
     if (!nombre || !numeroDocumento || !tipoDocumento) {
-        return res.status(400).json({ error: 'Nombre, número de documento y tipo de documento son requeridos para generar el certificado.' });
+        return res.status(400).json({ error: 'Nombre, número de documento y tipo de documento son requeridos.' });
     }
 
-    console.log(`Solicitud de certificado para: ${nombre}, Doc: ${numeroDocumento}, Tipo: ${tipoDocumento}`);
+    console.log(`Solicitud de certificado para: ${nombre}, Doc: ${numeroDocumento}`);
 
     try {
-        // 2. Configurar la respuesta HTTP para un PDF
-        // USAMOS 'nombre' PARA EL NOMBRE DEL ARCHIVO TAMBIÉN
-        const fileName = `Certificado_${nombre.replace(/\s/g, '_')}_${numeroDocumento}.pdf`; 
+        const fileName = `Certificado_${nombre.replace(/\s/g, '_')}_${numeroDocumento}.pdf`;
         res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`); 
+        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
 
-        // 3. Crear un nuevo documento PDF
         const doc = new PDFDocument({
-            size: 'A4', 
-            margin: 0, 
+            size: 'A4',
+            margin: 0,
         });
 
-        // 4. Conectar el stream del PDF directamente al objeto de respuesta (res)
         doc.pipe(res);
 
-        // Ruta absoluta para la imagen del certificado
         const certificadoImagePath = path.join(__dirname, '..', 'imagenes', 'certificado.png');
-        let certificadoImageBuffer;
+        const certificadoImageBuffer = fs.readFileSync(certificadoImagePath);
 
-        // Cargar la imagen como buffer
-        try {
-            certificadoImageBuffer = fs.readFileSync(certificadoImagePath);
-        } catch (readErr) {
-            console.error('Error al leer la imagen de fondo del certificado:', readErr);
-            if (!res.headersSent) {
-                return res.status(500).json({
-                    error: 'Error interno del servidor: No se pudo cargar la imagen de fondo del certificado.',
-                    details: readErr.message
-                });
-            }
-            doc.end(); 
-            return; 
-        }
-
-        // --- Añadir la imagen de fondo al certificado ---
         doc.image(certificadoImageBuffer, 0, 0, { width: doc.page.width, height: doc.page.height });
 
-        // Posicionar los datos sobre la imagen
-        doc.fillColor('black'); 
+        doc.fillColor('black');
 
-        // Fecha actual para el certificado
-      const fechaActual = new Date().toLocaleDateString('es-CO', {
+        const fechaActual = new Date().toLocaleDateString('es-CO', {
             year: 'numeric',
-            month: '2-digit', // Formato MM
-            day: '2-digit',   // Formato DD
-        }).replace(/\//g, '/'); // Asegura el formato DD/MM/YYYY o similar
+            month: '2-digit',
+            day: '2-digit',
+        }).replace(/\//g, '/');
 
         // --- Añadir Nombre ---
-        // AHORA USAMOS 'nombre' PARA EL TEXTO DEL PDF
-        doc.fontSize(15) 
-           .font('Helvetica') 
-           .text(nombre, 0, 165, { 
-               align: 'center', 
-               width: doc.page.width, 
-           });
-        
+        doc.fontSize(15).font('Helvetica').text(nombre, 0, 165, {
+            align: 'center',
+            width: doc.page.width,
+        });
+
         // --- Añadir Número de Documento ---
-        doc.fontSize(15) 
-           .font('Helvetica')
-           .text(`${tipoDocumento}: ${numeroDocumento}`, 124, 199, { 
-               align: 'center',
-               width: doc.page.width,
-           });
+        doc.fontSize(15).font('Helvetica').text(`${tipoDocumento}: ${numeroDocumento}`, 124, 199, {
+            align: 'center',
+            width: doc.page.width,
+        });
 
-        // --- Añadir Fecha Actual (Primera vez) ---
-        doc.fontSize(14)
-           .text(fechaActual, -80, 328, { 
-               align: 'center',
-               width: doc.page.width,
-           });
+        // --- Añadir Fechas ---
+        doc.fontSize(14).text(fechaActual, -80, 328, {
+            align: 'center',
+            width: doc.page.width,
+        });
 
-             doc.fontSize(15)
-           .text(fechaActual, -90, 620, { 
-               align: 'center',
-               width: doc.page.width,
-           });
+        doc.fontSize(14).text(fechaActual, -130, 618, {
+            align: 'center',
+            width: doc.page.width,
+        });
 
-        // --- Añadir Fecha Actual (Segunda vez) ---
-      
+        // ==================================================================
+        // <-- 2. GENERACIÓN E INCRUSTACIÓN DEL CÓDIGO QR -->
+        // ==================================================================
+        const urlVerificacion = 'https://quickcontrola.com/verificacion';
 
-        // Finalizar el documento y enviarlo a la respuesta
+        // Generamos el QR como una imagen en formato Data URL (Base64)
+        const qrCodeImage = await QRCode.toDataURL(urlVerificacion, {
+            errorCorrectionLevel: 'H', // Alta corrección de errores, bueno para impresión
+            margin: 2,
+            scale: 4 // Escala de la imagen
+        });
+
+        // Incrustamos la imagen del QR en el PDF
+        // Tendrás que ajustar las coordenadas (X, Y) y el tamaño para que encaje en tu diseño
+        doc.image(qrCodeImage, 475, 720, { // Posición (X, Y) desde la esquina superior izquierda
+            width: 80 // Ancho del QR en el PDF
+        });
+        // ==================================================================
+
         doc.end();
 
         console.log(`Certificado PDF generado y enviado para: ${nombre}`);
@@ -136,54 +118,43 @@ const generarCertificadoController = async (req, res) => {
 // //////////////////////////////////////////////////////////////////////////////////
 const generarCarnetController = async (req, res) => {
     const { nombre, numeroDocumento, tipoDocumento } = req.body;
-    const fotoFile = req.file; // fotoFile será 'undefined' si no se envía foto, y eso está bien.
+    const fotoFile = req.file;
 
     try {
         if (!nombre || !numeroDocumento || !tipoDocumento) {
             return res.status(400).json({ error: 'Nombre, número de documento y tipo de documento son requeridos.' });
         }
 
-        // --- CORREGIDO: El console.log ahora es condicional ---
-        // Se registra una cosa si hay foto, y otra si no la hay.
         if (fotoFile) {
             console.log(`Solicitud de carnet para: ${nombre} con foto: ${fotoFile.originalname}`);
         } else {
             console.log(`Solicitud de carnet para: ${nombre} (sin foto adjunta).`);
         }
 
-        // --- Configuración del PDF (sin cambios) ---
         const fileName = `Carnet_${nombre.replace(/\s/g, '_')}_${numeroDocumento}.pdf`;
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
 
         const doc = new PDFDocument({
-            size: [85.6 * 2.83, 54 * 2.83],
+            size: [85.6 * 2.83, 54 * 2.83], // Aprox. 242.5 x 153 pt
             margin: 0,
         });
 
         doc.pipe(res);
 
-        // --- Carga de imágenes de fondo (sin cambios) ---
         const frontalImagePath = path.join(__dirname, '..', 'imagenes', 'frontal.png');
         const posteriorImagePath = path.join(__dirname, '..', 'imagenes', 'posterior.png');
         const frontalImageBuffer = fs.readFileSync(frontalImagePath);
         const posteriorImageBuffer = fs.readFileSync(posteriorImagePath);
 
-        // --- Página Frontal del Carnet (sin cambios) ---
+        // --- Página Frontal del Carnet ---
         doc.image(frontalImageBuffer, 0, 0, { width: doc.page.width, height: doc.page.height });
 
-        // --- ELIMINADO: Se quitó el bloque de código redundante de aquí ---
-        // Se eliminó la línea "const fotoBuffer = fs.readFileSync(fotoFile.path);" que causaría el segundo error.
-
-        // --- Lógica para añadir la foto (tu bloque 'if' ya estaba correcto) ---
-        // Esta parte solo se ejecuta si 'fotoFile' existe, lo cual es perfecto.
         if (fotoFile) {
             const fotoBuffer = fs.readFileSync(fotoFile.path);
-            const fotoOptions = { width: 65, height: 80, align: 'center', valign: 'center' };
-            doc.image(fotoBuffer, 155, 40, fotoOptions);
+            doc.image(fotoBuffer, 155, 40, { width: 65, height: 80, align: 'center', valign: 'center' });
         }
 
-        // --- El resto de la lógica para añadir texto y la página posterior se mantiene igual ---
         doc.fillColor('black');
         doc.fontSize(9).text(nombre, 8, 60, { width: 150, align: 'center' });
         doc.fontSize(7).text(tipoDocumento, 55, 73, { width: 150, align: 'left' });
@@ -192,11 +163,28 @@ const generarCarnetController = async (req, res) => {
         const fechaActual = new Date().toLocaleDateString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '/');
         doc.fontSize(6).text(fechaActual, 197, 133, { width: 100, align: 'left' });
 
+        // --- Página Posterior del Carnet ---
         doc.addPage({ size: [85.6 * 2.83, 54 * 2.83], margin: 0 });
         doc.image(posteriorImageBuffer, 0, 0, { width: doc.page.width, height: doc.page.height });
 
         const fechaVencimiento = new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toLocaleDateString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '/');
         doc.fillColor('white').fontSize(7).text(fechaVencimiento, 33, 137, { width: 100, align: 'left' });
+
+        // ==================================================================
+        // <-- 1. GENERACIÓN E INCRUSTACIÓN DEL CÓDIGO QR -->
+        // ==================================================================
+        const urlVerificacion = 'https://quickcontrola.com/verificacion';
+        const qrCodeImage = await QRCode.toDataURL(urlVerificacion, {
+            errorCorrectionLevel: 'H',
+            margin: 1,
+            scale: 3 // Un tamaño más pequeño, adecuado para el carnet
+        });
+
+        // Incrustamos el QR en la parte posterior. Ajusta X, Y y el ancho según tu diseño.
+        doc.image(qrCodeImage, 180, 25, { // Posición (X, Y)
+            width: 40 // Ancho del QR
+        });
+        // ==================================================================
 
         doc.end();
         console.log(`Carnet PDF generado y enviado para: ${nombre}`);
@@ -210,7 +198,6 @@ const generarCarnetController = async (req, res) => {
             });
         }
     } finally {
-        // Esta parte ya estaba correcta, solo borra el archivo si existe.
         if (fotoFile) {
             fs.unlinkSync(fotoFile.path);
             console.log(`Archivo temporal ${fotoFile.path} eliminado.`);
