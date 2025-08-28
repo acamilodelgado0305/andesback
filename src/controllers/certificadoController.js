@@ -161,7 +161,7 @@ const generarCarnetController = async (req, res) => {
         doc.fontSize(7).text(numeroDocumento, 75, 73, { width: 150, align: 'left' });
 
         const fechaActual = new Date().toLocaleDateString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '/');
-        doc.fontSize(6).text(fechaActual, 197, 133, { width: 100, align: 'left' });
+        doc.fontSize(6).text(fechaActual, 202, 134, { width: 100, align: 'left' });
 
         // --- Página Posterior del Carnet ---
         doc.addPage({ size: [85.6 * 2.83, 54 * 2.83], margin: 0 });
