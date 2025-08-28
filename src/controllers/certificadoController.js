@@ -156,7 +156,7 @@ const generarCarnetController = async (req, res) => {
         }
 
         doc.fillColor('black');
-        doc.fontSize(9).text(nombre, 8, 60, { width: 150, align: 'center' });
+        doc.fontSize(7).text(nombre, 8, 60, { width: 150, align: 'center' });
         doc.fontSize(7).text(tipoDocumento, 55, 73, { width: 150, align: 'left' });
         doc.fontSize(7).text(numeroDocumento, 75, 73, { width: 150, align: 'left' });
 
