@@ -2,8 +2,8 @@
   {
     "origin": [
       "http://localhost:5173",
-      "https://andesfront.onrender.com",
-      "https://validaciondebachillerato.com.co",
+      "https://controla.onrender.com",
+      "https://quickcontrola.com",
       "https://santasofia.vercel.app"
     ],
     "method": ["GET"],
