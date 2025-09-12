@@ -11,6 +11,8 @@ import GradesRouter from './routes/GradesRouter.js'
 import CertificadosRouter from "./routes/certificadoRoutes.js"
 import adminrRoutes from './routes/admin/adminRoutes.js'
 import verifyToken from './authMiddleware.js';
+import docentesRouter from './routes/docentesRouter.js'
+import materiasRouter from './routes/materiasRouter.js'
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -46,5 +48,7 @@ app.use('/api',  subjectRouter);
 app.use('/api',  GradesRouter);
 app.use('/api',  CertificadosRouter);
 app.use('/api',  adminrRoutes);
+app.use('/api',  docentesRouter);
+app.use('/api',  materiasRouter);
 
 export default app;

@@ -553,51 +553,53 @@ const getStudentsByProgramTypeController = async (req, res) => {
         return res.status(400).json({ error: 'Tipo de programa inválido. Use "bachillerato" o "tecnicos".' });
     }
 
-    try {
-        // Determinamos el operador SQL ('IN' o 'NOT IN') basado en el parámetro 'tipo'.
-        const programCondition = tipo === 'bachillerato' ? 'IN' : 'NOT IN';
+    const programTypeFilter = tipo === 'bachillerato' ? 'Validacion' : 'Tecnico';
 
-        // Creamos una única consulta que ahora une las tres tablas.
-        // La lógica central es encontrar los estudiantes cuyo ID exista en la tabla
-        // intermedia `estudiante_programas`, cumpliendo la condición del tipo de programa.
+    try {
         const query = `
-            SELECT DISTINCT -- Usamos DISTINCT para asegurar que cada estudiante aparezca solo una vez
+            WITH programas_con_tipo AS (
+                SELECT
+                    id,
+                    nombre,
+                    CASE
+                        WHEN nombre ILIKE '%bachillerato%' THEN 'Validacion'
+                        ELSE 'Tecnico'
+                    END AS tipo_programa_calculado
+                FROM inventario
+            )
+            SELECT DISTINCT
                 s.id,
                 s.nombre,
                 s.apellido,
                 s.email,
                 s.telefono_whatsapp,
                 s.activo,
-                i.nombre AS nombre_programa -- Opcional: Incluimos el nombre del programa para contexto
+                s.modalidad_estudio,
+                -- LÍNEAS AÑADIDAS --
+                i.nombre AS nombre_programa, -- Añadimos el nombre del programa específico
+                i.tipo_programa_calculado AS tipo_programa -- ¡Aquí está la columna que necesitas!
+                ---------------------
             FROM
                 students s
             INNER JOIN
                 estudiante_programas ep ON s.id = ep.estudiante_id
             INNER JOIN
-                inventario i ON ep.programa_id = i.id
+                programas_con_tipo i ON ep.programa_id = i.id
             WHERE
-                s.id ${programCondition} (
-                    -- Subconsulta: Obtiene todos los IDs de estudiantes asociados a programas de bachillerato
-                    SELECT DISTINCT estudiante_id
-                    FROM estudiante_programas
-                    WHERE programa_id IN (
-                        -- Sub-subconsulta: Obtiene todos los IDs de los programas que son de bachillerato
-                        SELECT id FROM inventario WHERE nombre ILIKE $1
-                    )
-                )
+                i.tipo_programa_calculado = $1
+                AND s.activo = 'true'
+                AND s.modalidad_estudio = 'Clases en Linea'
             ORDER BY
-                s.nombre, s.apellido;
+                s.apellido, s.nombre;
         `;
 
-        const values = ['%bachillerato%'];
-
+        const values = [programTypeFilter];
         const result = await pool.query(query, values);
-
         res.status(200).json(result.rows);
 
     } catch (err) {
         console.error(`Error en getStudentsByProgramTypeController (${tipo}):`, err);
-        handleServerError(res, err, `Error obteniendo estudiantes por tipo de programa.`);
+        res.status(500).json({ error: 'Error interno del servidor.' });
     }
 };
 

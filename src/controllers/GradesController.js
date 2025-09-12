@@ -14,30 +14,41 @@ const getGradesController = async (req, res) => {
 };
 
 const saveGradesController = async (req, res) => {
-    const gradesData = req.body; // Array de { studentId, grades: { [materia]: nota } }
+    // El frontend ahora enviará un array de { studentId, programa: "...", grades: { ... } }
+    const gradesData = req.body; 
+    
     try {
-        await pool.query('BEGIN'); // Iniciar transacción
+        await pool.query('BEGIN');
 
-        for (const { studentId, grades } of gradesData) {
+        // -- CAMBIO: Extraemos 'programa' del objeto
+        for (const { studentId, programa, grades } of gradesData) {
+            
+            if (!programa) {
+                throw new Error(`Falta el tipo de programa para el estudiante con ID: ${studentId}.`);
+            }
+
             for (const [materia, nota] of Object.entries(grades)) {
                 if (nota !== null && nota !== undefined) {
                     await pool.query(
-                        `INSERT INTO grades (student_id, materia, nota, created_at, updated_at)
-                         VALUES ($1, $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                         ON CONFLICT (student_id, materia)
-                         DO UPDATE SET nota = $3, updated_at = CURRENT_TIMESTAMP`,
-                        [studentId, materia, nota]
+                        // -- CAMBIO: Añadimos 'programa' a la consulta INSERT
+                        `INSERT INTO grades (student_id, programa, materia, nota, created_at, updated_at)
+                         VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                         -- CAMBIO: El ON CONFLICT ahora usa la nueva llave primaria
+                         ON CONFLICT (student_id, programa, materia)
+                         DO UPDATE SET nota = $4, updated_at = CURRENT_TIMESTAMP`,
+                        // -- CAMBIO: Pasamos 'programa' como segundo parámetro
+                        [studentId, programa, materia, nota]
                     );
                 }
             }
         }
 
-        await pool.query('COMMIT'); // Confirmar transacción
+        await pool.query('COMMIT');
         res.status(201).json({ message: 'Notas guardadas exitosamente' });
     } catch (err) {
-        await pool.query('ROLLBACK'); // Revertir transacción en caso de error
+        await pool.query('ROLLBACK');
         console.error('Error guardando notas', err);
-        res.status(500).json({ error: 'Error guardando notas' });
+        res.status(500).json({ error: err.message || 'Error guardando notas' });
     }
 };
 
