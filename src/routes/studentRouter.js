@@ -9,7 +9,8 @@ import {
   // === Controladores de filtrado actualizados ===
   getStudentsByProgramTypeController, // Reemplaza getStudentsByBachilleratoController y getStudentsByTecnicosController
   getStudentsByProgramaIdController,  // Nuevo para filtrar por ID de programa
-  getStudentsByCoordinatorIdController 
+  getStudentsByCoordinatorIdController,
+  getStudentByDocumentController
 } from '../controllers/studentController.js';
 
 import { getGradesByStudentIdController, getGradesByStudentDocumentController } from '../controllers/GradesController.js';
@@ -39,6 +40,7 @@ router.get('/students/program/:programaId', getStudentsByProgramaIdController);
 // Ejemplo de uso:
 // GET /api/students/program/1 (asumiendo que 1 es el ID de un programa)
 
+router.get('/students/document/:numero_documento', getStudentByDocumentController);
 
 // GET: Obtener todos los estudiantes (esta debe ir después de las rutas estáticas)
 router.get('/students', getStudentsController);

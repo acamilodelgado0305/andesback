@@ -13,6 +13,7 @@ const handleServerError = (res, err, message) => {
 // LÓGICA DE CREACIÓN (CREATE)
 // =======================================================
 const createStudentController = async (req, res) => {
+    // 1. Desestructuramos los datos del body. Nota el cambio a `programas_ids` para mayor consistencia.
     const {
         nombre,
         apellido,
@@ -20,87 +21,78 @@ const createStudentController = async (req, res) => {
         tipoDocumento,
         numeroDocumento,
         lugarExpedicion,
-        fechaNacimiento, // Ya viene como Date de Moment en el frontend, se formateará
+        fechaNacimiento,
         lugarNacimiento,
         telefonoLlamadas,
         telefonoWhatsapp,
         simat,
-        pagoMatricula, // 'Pagado' o 'Pendiente' (string)
-        programasIds, // Array de IDs de programas (INT)
-        coordinador_id, // Debería venir el ID numérico del frontend
+        pagoMatricula,
+        programas_ids, // <-- El array de IDs de programas.
+        coordinador_id,
         modalidad_estudio,
         ultimoCursoVisto,
-        eps, // Asegúrate de que estos campos existen en el frontend y la DB
+        eps,
         rh,
         nombreAcudiente,
         tipoDocumentoAcudiente,
         telefonoAcudiente,
         direccionAcudiente,
-        // No incluyas 'activo', 'fecha_inscripcion' si son automáticos
     } = req.body;
 
-    // Validaciones básicas (puedes expandir con Joi/Zod para más robustez)
-    if (!nombre || !apellido || !email || !numeroDocumento || !programasIds || !Array.isArray(programasIds) || programasIds.length === 0) {
-        return res.status(400).json({ error: 'Faltan campos obligatorios o programas de interés.' });
+    // 2. Validación: Nos aseguramos de que `programas_ids` sea un array.
+    if (!nombre || !apellido || !email || !numeroDocumento || !programas_ids || !Array.isArray(programas_ids)) {
+        return res.status(400).json({ error: 'Faltan campos obligatorios o el formato de programas es incorrecto.' });
     }
-    if (!coordinador_id || typeof coordinador_id !== 'number' || isNaN(coordinador_id)) {
+    if (!coordinador_id || isNaN(parseInt(coordinador_id))) {
         return res.status(400).json({ error: 'ID de coordinador inválido o no proporcionado.' });
     }
 
-    const estadoMatriculaBoolean = (pagoMatricula === 'Pagado'); // 'Pagado' -> true
-    const simatBoolean = (simat === 'Activo'); // ¡LÍNEA A AÑADIR! 'Activo' -> true
+    // 3. Conversión de valores a booleanos (esto sigue siendo una buena práctica).
+    const estadoMatriculaBoolean = (pagoMatricula === 'Pagado');
+    const simatBoolean = (simat === 'Activo');
 
-    let client;
     try {
-        client = await pool.connect();
-        await client.query('BEGIN'); // Iniciar la transacción
-
-        // 1. Insertar el nuevo estudiante
+        // 4. Se ha simplificado la query para incluir la columna `programas_ids` directamente.
+        //    Ahora es una única operación atómica, no necesitamos una transacción explícita (BEGIN/COMMIT).
         const studentInsertQuery = `
             INSERT INTO students (
                 nombre, apellido, email, tipo_documento, numero_documento, lugar_expedicion,
                 fecha_nacimiento, lugar_nacimiento, telefono_llamadas, telefono_whatsapp,
                 simat, estado_matricula, coordinador_id, modalidad_estudio,
                 ultimo_curso_visto, eps, rh, nombre_acudiente, tipo_documento_acudiente,
-                telefono_acudiente, direccion_acudiente, fecha_inscripcion, activo
+                telefono_acudiente, direccion_acudiente, 
+                programas_ids -- <-- NUEVA COLUMNA AÑADIDA
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, CURRENT_TIMESTAMP, true)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
             RETURNING id;
         `;
 
-        const studentResult = await client.query(
+        const studentResult = await pool.query(
             studentInsertQuery,
             [
                 nombre, apellido, email, tipoDocumento, numeroDocumento, lugarExpedicion,
                 fechaNacimiento, lugarNacimiento, telefonoLlamadas, telefonoWhatsapp,
-                simatBoolean, // ¡CAMBIO AQUÍ! Usar la variable booleana
-                estadoMatriculaBoolean, coordinador_id, modalidad_estudio,
+                simatBoolean, estadoMatriculaBoolean, coordinador_id, modalidad_estudio,
                 ultimoCursoVisto, eps, rh, nombreAcudiente, tipoDocumentoAcudiente,
-                telefonoAcudiente, direccionAcudiente
+                telefonoAcudiente, direccionAcudiente,
+                programas_ids // <-- Se pasa el array directamente. node-postgres lo convierte.
             ]
         );
+        
         const newStudentId = studentResult.rows[0].id;
 
-        // 2. Insertar las relaciones en la tabla intermedia 'estudiante_programas'
-        for (const programaId of programasIds) {
-            if (isNaN(parseInt(programaId, 10))) {
-                throw new Error(`ID de programa inválido proporcionado: ${programaId}`);
-            }
-            const programAssignQuery = `
-                INSERT INTO estudiante_programas (estudiante_id, programa_id)
-                VALUES ($1, $2);
-            `;
-            await client.query(programAssignQuery, [newStudentId, parseInt(programaId, 10)]);
-        }
+        // ¡Ya no es necesario el bucle para insertar en `estudiante_programas`!
 
-        await client.query('COMMIT');
-        res.status(201).json({ message: "Estudiante y programas asociados creados exitosamente", studentId: newStudentId });
+        res.status(201).json({ message: "Estudiante creado exitosamente", studentId: newStudentId });
 
     } catch (err) {
-        if (client) await client.query('ROLLBACK');
-        handleServerError(res, err, 'Error al crear el estudiante o asociar los programas.');
-    } finally {
-        if (client) client.release();
+        // Manejo de errores (puedes tener una función helper para esto).
+        console.error('Error al crear el estudiante:', err);
+        // Error de llave duplicada (ej: email o documento ya existen)
+        if (err.code === '23505') { 
+            return res.status(409).json({ error: `El estudiante con este email o número de documento ya existe. Detalle: ${err.detail}` });
+        }
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 };
 
@@ -109,6 +101,8 @@ const createStudentController = async (req, res) => {
 // =======================================================
 const getStudentsController = async (req, res) => {
     try {
+        // QUERY MEJORADA: Eliminamos los JOINs con la tabla intermedia.
+        // Usamos una subconsulta correlacionada para obtener los detalles de los programas.
         const query = `
             SELECT
                 s.id,
@@ -124,7 +118,7 @@ const getStudentsController = async (req, res) => {
                 s.telefono_whatsapp,
                 s.simat,
                 s.estado_matricula,
-                u.name AS coordinador_nombre, -- Nombre del coordinador
+                u.name AS coordinador_nombre,
                 s.modalidad_estudio,
                 s.ultimo_curso_visto,
                 s.fecha_inscripcion,
@@ -133,34 +127,35 @@ const getStudentsController = async (req, res) => {
                 s.updated_at,
                 s.fecha_graduacion,
                 s.matricula,
-                COALESCE(
-                    json_agg(
+                s.programas_ids, -- Opcional: devolver también el array de IDs puros.
+
+                -- 1. Aquí está la magia: Una subconsulta para construir el JSON de programas.
+                (
+                    SELECT COALESCE(json_agg(
                         json_build_object(
                             'programa_id', i.id,
                             'nombre_programa', i.nombre,
                             'monto_programa', i.monto
-                        )
-                        ORDER BY i.nombre
-                    ) FILTER (WHERE i.id IS NOT NULL),
-                    '[]'::json
+                        ) ORDER BY i.nombre
+                    ), '[]'::json)
+                    FROM inventario i
+                    -- 2. La condición clave: busca donde el ID del programa esté en nuestro array.
+                    WHERE i.id = ANY(s.programas_ids)
                 ) AS programas_asociados
             FROM
                 students s
             LEFT JOIN
-                estudiante_programas ep ON s.id = ep.estudiante_id
-            LEFT JOIN
-                inventario i ON ep.programa_id = i.id
-            LEFT JOIN
-                users u ON s.coordinador_id = u.id -- Unir con users para el nombre del coordinador
-            GROUP BY
-                s.id, u.name -- Agrupar por s.id y u.name
+                users u ON s.coordinador_id = u.id -- Mantenemos el JOIN para el nombre del coordinador
             ORDER BY
                 s.nombre, s.apellido;
         `;
+        
         const result = await pool.query(query);
         res.status(200).json(result.rows);
+
     } catch (err) {
-        handleServerError(res, err, 'Error obteniendo estudiantes y programas asociados.');
+        // Usamos tu manejador de errores existente
+        handleServerError(res, err, 'Error obteniendo la lista de estudiantes.');
     }
 };
 
@@ -174,68 +169,50 @@ const getStudentByIdController = async (req, res) => {
     }
 
     try {
-        // QUERY MEJORADA: Incluye todos los campos relevantes del estudiante y su acudiente.
+        // QUERY ACTUALIZADA: Se eliminan los JOINs a la tabla intermedia y el GROUP BY.
+        // Se añade la subconsulta para obtener los programas.
         const query = `
             SELECT
-                -- Datos principales del estudiante (ya los tenías bien)
+                -- Datos principales del estudiante
                 s.id, s.nombre, s.apellido, s.email, s.tipo_documento,
                 s.numero_documento, s.lugar_expedicion, s.fecha_nacimiento,
                 s.lugar_nacimiento, s.telefono_llamadas, s.telefono_whatsapp,
                 s.simat, s.estado_matricula, s.modalidad_estudio,
                 s.ultimo_curso_visto, s.fecha_inscripcion, s.activo,
-
-                -- NUEVOS CAMPOS AÑADIDOS PARA ENRIQUECER EL PERFIL
-                s.telefono, 
-                s.numero_cedula,
-                s.fecha_graduacion, 
-                s.matricula, 
-                s.eps, 
-                s.rh,
-                s.documento, -- Campo para posible URL de documento
-                s.created_at,
-                s.updated_at,
+                s.telefono, s.numero_cedula, s.fecha_graduacion, 
+                s.matricula, s.eps, s.rh, s.documento,
+                s.created_at, s.updated_at,
+                s.programas_ids, -- Añadimos el array de IDs a la selección
 
                 -- Datos del Acudiente
-                s.nombre_acudiente,
-                s.tipo_documento_acudiente,
-                s.telefono_acudiente,
-                s.direccion_acudiente,
+                s.nombre_acudiente, s.tipo_documento_acudiente,
+                s.telefono_acudiente, s.direccion_acudiente,
                 
                 -- Campos del Coordinador
-                u.id AS coordinador_id,
-                u.name AS coordinador_nombre,
+                u.id AS coordinador_id, u.name AS coordinador_nombre,
                 
                 -- Campos del Negocio (a través del coordinador)
-                b.id AS business_id,
-                b.name AS business_name,
+                b.id AS business_id, b.name AS business_name,
                 b.profile_picture_url AS business_profile_picture_url,
 
-                -- Agregación de programas (tu lógica original se mantiene)
-                COALESCE(
-                    json_agg(
+                -- Subconsulta para obtener los detalles de los programas asociados
+                (
+                    SELECT COALESCE(json_agg(
                         json_build_object(
                             'programa_id', i.id,
                             'nombre_programa', i.nombre,
                             'monto_programa', i.monto
-                        )
-                    ) FILTER (WHERE i.id IS NOT NULL),
-                    '[]'::json
+                        ) ORDER BY i.nombre
+                    ), '[]'::json)
+                    FROM inventario i
+                    WHERE i.id = ANY(s.programas_ids)
                 ) AS programas_asociados
             FROM
                 students s
-            LEFT JOIN
-                users u ON s.coordinador_id = u.id
-            LEFT JOIN
-                businesses b ON u.business_id = b.id
-            LEFT JOIN
-                estudiante_programas ep ON s.id = ep.estudiante_id
-            LEFT JOIN
-                inventario i ON ep.programa_id = i.id
+            LEFT JOIN users u ON s.coordinador_id = u.id
+            LEFT JOIN businesses b ON u.business_id = b.id
             WHERE
-                s.id = $1
-            GROUP BY
-                -- Se agregan los nuevos campos a la cláusula GROUP BY
-                s.id, u.id, b.id;
+                s.id = $1;
         `;
 
         const result = await pool.query(query, [id]);
@@ -246,7 +223,8 @@ const getStudentByIdController = async (req, res) => {
 
         const flatStudent = result.rows[0];
 
-        // RESPUESTA MEJORADA: Mapea todos los campos nuevos y agrupa los datos del acudiente.
+        // El código de mapeo de respuesta sigue funcionando perfectamente
+        // porque nuestra consulta devuelve el campo `programas_asociados` como antes.
         const studentResponse = {
             id: flatStudent.id,
             nombre: flatStudent.nombre,
@@ -259,41 +237,37 @@ const getStudentByIdController = async (req, res) => {
             lugar_nacimiento: flatStudent.lugar_nacimiento,
             telefono_llamadas: flatStudent.telefono_llamadas,
             telefono_whatsapp: flatStudent.telefono_whatsapp,
-            telefono: flatStudent.telefono, // Nuevo
-            numero_cedula: flatStudent.numero_cedula, // Nuevo
+            telefono: flatStudent.telefono,
+            numero_cedula: flatStudent.numero_cedula,
             simat: flatStudent.simat,
             estado_matricula: flatStudent.estado_matricula,
-            matricula: flatStudent.matricula, // Nuevo
+            matricula: flatStudent.matricula,
             modalidad_estudio: flatStudent.modalidad_estudio,
             ultimo_curso_visto: flatStudent.ultimo_curso_visto,
             fecha_inscripcion: flatStudent.fecha_inscripcion,
-            fecha_graduacion: flatStudent.fecha_graduacion, // Nuevo
+            fecha_graduacion: flatStudent.fecha_graduacion,
             activo: flatStudent.activo,
-            eps: flatStudent.eps, // Nuevo
-            rh: flatStudent.rh, // Nuevo
-            documento_url: flatStudent.documento, // Nuevo
-            created_at: flatStudent.created_at, // Nuevo
-            updated_at: flatStudent.updated_at, // Nuevo
-
-            // Objeto anidado para el acudiente
+            eps: flatStudent.eps,
+            rh: flatStudent.rh,
+            documento_url: flatStudent.documento,
+            created_at: flatStudent.created_at,
+            updated_at: flatStudent.updated_at,
+            programas_ids: flatStudent.programas_ids || [], // Devolvemos el array de IDs
             acudiente: flatStudent.nombre_acudiente ? {
                 nombre: flatStudent.nombre_acudiente,
                 tipo_documento: flatStudent.tipo_documento_acudiente,
                 telefono: flatStudent.telefono_acudiente,
                 direccion: flatStudent.direccion_acudiente
             } : null,
-
             coordinador: flatStudent.coordinador_id ? {
                 id: flatStudent.coordinador_id,
                 nombre: flatStudent.coordinador_nombre
             } : null,
-
             business: flatStudent.business_id ? {
                 id: flatStudent.business_id,
                 name: flatStudent.business_name,
                 profilePictureUrl: flatStudent.business_profile_picture_url
             } : null,
-
             programas_asociados: flatStudent.programas_asociados
         };
 
@@ -305,6 +279,122 @@ const getStudentByIdController = async (req, res) => {
     }
 };
 
+
+/**
+ * Controlador para obtener un estudiante por su número de documento.
+ * @param {object} req - El objeto de solicitud de Express.
+ * @param {object} res - El objeto de respuesta de Express.
+ */
+const getStudentByDocumentController = async (req, res) => {
+    // 1. Obtenemos el número de documento de los parámetros de la URL.
+    const { numero_documento } = req.params;
+
+    // 2. Validación básica para asegurarnos de que el parámetro no esté vacío.
+    if (!numero_documento) {
+        return res.status(400).json({ error: 'El número de documento es requerido.' });
+    }
+
+    try {
+        // 3. Utilizamos tu query original, pero modificamos el WHERE.
+        //    Buscamos por `s.numero_documento` en lugar de `s.id`.
+        const query = `
+            SELECT
+                s.id, s.nombre, s.apellido, s.email, s.tipo_documento,
+                s.numero_documento, s.lugar_expedicion, s.fecha_nacimiento,
+                s.lugar_nacimiento, s.telefono_llamadas, s.telefono_whatsapp,
+                s.simat, s.estado_matricula, s.modalidad_estudio,
+                s.ultimo_curso_visto, s.fecha_inscripcion, s.activo,
+                s.telefono, s.numero_cedula, s.fecha_graduacion, 
+                s.matricula, s.eps, s.rh, s.documento, 
+                s.created_at, s.updated_at,
+                s.nombre_acudiente, s.tipo_documento_acudiente,
+                s.telefono_acudiente, s.direccion_acudiente,
+                u.id AS coordinador_id, u.name AS coordinador_nombre,
+                b.id AS business_id, b.name AS business_name,
+                b.profile_picture_url AS business_profile_picture_url,
+                COALESCE(
+                    json_agg(
+                        json_build_object(
+                            'programa_id', i.id,
+                            'nombre_programa', i.nombre,
+                            'monto_programa', i.monto
+                        )
+                    ) FILTER (WHERE i.id IS NOT NULL),
+                    '[]'::json
+                ) AS programas_asociados
+            FROM
+                students s
+            LEFT JOIN users u ON s.coordinador_id = u.id
+            LEFT JOIN businesses b ON u.business_id = b.id
+            LEFT JOIN estudiante_programas ep ON s.id = ep.estudiante_id
+            LEFT JOIN inventario i ON ep.programa_id = i.id
+            WHERE
+                s.numero_documento = $1  -- ¡Este es el cambio clave!
+            GROUP BY
+                s.id, u.id, b.id;
+        `;
+
+        const result = await pool.query(query, [numero_documento]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Estudiante no encontrado con ese número de documento.' });
+        }
+
+        const flatStudent = result.rows[0];
+
+        // 4. Mantenemos la misma estructura de respuesta para consistencia en la API.
+        const studentResponse = {
+            id: flatStudent.id,
+            nombre: flatStudent.nombre,
+            apellido: flatStudent.apellido,
+            email: flatStudent.email,
+            tipo_documento: flatStudent.tipo_documento,
+            numero_documento: flatStudent.numero_documento,
+            lugar_expedicion: flatStudent.lugar_expedicion,
+            fecha_nacimiento: flatStudent.fecha_nacimiento,
+            lugar_nacimiento: flatStudent.lugar_nacimiento,
+            telefono_llamadas: flatStudent.telefono_llamadas,
+            telefono_whatsapp: flatStudent.telefono_whatsapp,
+            telefono: flatStudent.telefono,
+            numero_cedula: flatStudent.numero_cedula,
+            simat: flatStudent.simat,
+            estado_matricula: flatStudent.estado_matricula,
+            matricula: flatStudent.matricula,
+            modalidad_estudio: flatStudent.modalidad_estudio,
+            ultimo_curso_visto: flatStudent.ultimo_curso_visto,
+            fecha_inscripcion: flatStudent.fecha_inscripcion,
+            fecha_graduacion: flatStudent.fecha_graduacion,
+            activo: flatStudent.activo,
+            eps: flatStudent.eps,
+            rh: flatStudent.rh,
+            documento_url: flatStudent.documento,
+            created_at: flatStudent.created_at,
+            updated_at: flatStudent.updated_at,
+            acudiente: flatStudent.nombre_acudiente ? {
+                nombre: flatStudent.nombre_acudiente,
+                tipo_documento: flatStudent.tipo_documento_acudiente,
+                telefono: flatStudent.telefono_acudiente,
+                direccion: flatStudent.direccion_acudiente
+            } : null,
+            coordinador: flatStudent.coordinador_id ? {
+                id: flatStudent.coordinador_id,
+                nombre: flatStudent.coordinador_nombre
+            } : null,
+            business: flatStudent.business_id ? {
+                id: flatStudent.business_id,
+                name: flatStudent.business_name,
+                profilePictureUrl: flatStudent.business_profile_picture_url
+            } : null,
+            programas_asociados: flatStudent.programas_asociados
+        };
+
+        res.status(200).json(studentResponse);
+
+    } catch (err) {
+        console.error('Error obteniendo estudiante por número de documento:', err);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+};
 // =======================================================
 // LÓGICA DE ACTUALIZACIÓN (UPDATE)
 // =======================================================
@@ -547,7 +637,8 @@ const getStudentsByProgramaIdController = async (req, res) => {
 // LÓGICA DE OBTENCIÓN (READ) - Filtrado por Tipo de Programa (Ej. Bachillerato vs Técnicos)
 // =======================================================
 const getStudentsByProgramTypeController = async (req, res) => {
-    const { tipo } = req.params; // 'bachillerato' o 'tecnicos'
+    const { tipo } = req.params;
+    const { activo, modalidad } = req.query;
 
     if (tipo !== 'bachillerato' && tipo !== 'tecnicos') {
         return res.status(400).json({ error: 'Tipo de programa inválido. Use "bachillerato" o "tecnicos".' });
@@ -557,43 +648,40 @@ const getStudentsByProgramTypeController = async (req, res) => {
 
     try {
         const query = `
-            WITH programas_con_tipo AS (
-                SELECT
-                    id,
-                    nombre,
+            WITH programas_filtrados AS (
+                SELECT id 
+                FROM inventario
+                WHERE
                     CASE
                         WHEN nombre ILIKE '%bachillerato%' THEN 'Validacion'
                         ELSE 'Tecnico'
-                    END AS tipo_programa_calculado
-                FROM inventario
+                    END = $1
             )
-            SELECT DISTINCT
-                s.id,
-                s.nombre,
-                s.apellido,
-                s.email,
-                s.telefono_whatsapp,
-                s.activo,
-                s.modalidad_estudio,
-                -- LÍNEAS AÑADIDAS --
-                i.nombre AS nombre_programa, -- Añadimos el nombre del programa específico
-                i.tipo_programa_calculado AS tipo_programa -- ¡Aquí está la columna que necesitas!
-                ---------------------
+            SELECT
+                s.id, s.nombre, s.apellido, s.email, s.telefono_whatsapp,
+                s.activo, s.modalidad_estudio, s.programas_ids,
+                (
+                    SELECT json_agg(i.nombre ORDER BY i.nombre)
+                    FROM inventario i
+                    WHERE i.id = ANY(s.programas_ids)
+                ) AS nombres_programas
             FROM
                 students s
-            INNER JOIN
-                estudiante_programas ep ON s.id = ep.estudiante_id
-            INNER JOIN
-                programas_con_tipo i ON ep.programa_id = i.id
             WHERE
-                i.tipo_programa_calculado = $1
-                AND s.activo = 'true'
-                AND s.modalidad_estudio = 'Clases en Linea'
+                s.programas_ids && (SELECT array_agg(id) FROM programas_filtrados)
+                -- CORRECCIÓN APLICADA AQUÍ: Comparamos texto con texto.
+                AND ($2::TEXT IS NULL OR s.activo = $2::TEXT)
+                AND ($3::TEXT IS NULL OR s.modalidad_estudio = $3)
             ORDER BY
                 s.apellido, s.nombre;
         `;
-
-        const values = [programTypeFilter];
+        
+        const values = [
+            programTypeFilter,
+            activo,
+            modalidad
+        ];
+        
         const result = await pool.query(query, values);
         res.status(200).json(result.rows);
 
@@ -606,13 +694,14 @@ const getStudentsByProgramTypeController = async (req, res) => {
 
 
 const getStudentsByCoordinatorIdController = async (req, res) => {
-    const { coordinatorId } = req.params; // Asume que el ID del coordinador viene en los parámetros de la ruta
+    const { coordinatorId } = req.params;
 
     if (!coordinatorId || isNaN(coordinatorId)) {
         return res.status(400).json({ error: 'ID de coordinador inválido o no proporcionado.' });
     }
 
     try {
+        // QUERY ACTUALIZADA: Aplicamos la misma lógica de subconsulta que en los controladores anteriores.
         const query = `
             SELECT
                 s.id,
@@ -637,44 +726,44 @@ const getStudentsByCoordinatorIdController = async (req, res) => {
                 s.updated_at,
                 s.fecha_graduacion,
                 s.matricula,
-                COALESCE(
-                    json_agg(
+                s.programas_ids,
+
+                -- Subconsulta para obtener los detalles de los programas asociados
+                (
+                    SELECT COALESCE(json_agg(
                         json_build_object(
                             'programa_id', i.id,
                             'nombre_programa', i.nombre,
                             'monto_programa', i.monto
-                        )
-                        ORDER BY i.nombre
-                    ) FILTER (WHERE i.id IS NOT NULL),
-                    '[]'::json
+                        ) ORDER BY i.nombre
+                    ), '[]'::json)
+                    FROM inventario i
+                    WHERE i.id = ANY(s.programas_ids)
                 ) AS programas_asociados
             FROM
                 students s
             LEFT JOIN
-                estudiante_programas ep ON s.id = ep.estudiante_id
-            LEFT JOIN
-                inventario i ON ep.programa_id = i.id
-            LEFT JOIN
                 users u ON s.coordinador_id = u.id
             WHERE
-                s.coordinador_id = $1 -- Filtramos por el ID del coordinador
-            GROUP BY
-                s.id, u.name
+                s.coordinador_id = $1 -- El filtro principal se mantiene
             ORDER BY
                 s.nombre, s.apellido;
         `;
+        
         const result = await pool.query(query, [coordinatorId]);
 
+        // La lógica para manejar la respuesta no necesita cambios.
         if (result.rows.length === 0) {
             return res.status(404).json({ message: 'No se encontraron estudiantes para este coordinador.' });
         }
 
         res.status(200).json(result.rows);
+
     } catch (err) {
+        // Asumiendo que tienes una función `handleServerError`
         handleServerError(res, err, 'Error obteniendo estudiantes por ID de coordinador.');
     }
 };
-
 
 export {
     createStudentController,
@@ -686,5 +775,6 @@ export {
     // Renombre y consolidación de controladores de filtrado
     getStudentsByProgramaIdController, // Nuevo controlador para filtrar por ID de programa específico
     getStudentsByProgramTypeController, // Nuevo controlador para filtrar por tipo de programa (bachillerato/tecnicos)
-    getStudentsByCoordinatorIdController
+    getStudentsByCoordinatorIdController,
+    getStudentByDocumentController
 };
