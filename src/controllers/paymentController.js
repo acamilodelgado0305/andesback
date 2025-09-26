@@ -47,101 +47,61 @@ const createPagoController = async (req, res) => {
         let costo_esperado = parseFloat(monto);
 
         if (tipo_pago_nombre === 'Mensualidad') {
-            if (!periodo_pagado) {
-                return res.status(400).json({ error: 'El período de pago es requerido para las mensualidades.' });
-            }
-            if (!program_id) {
-                return res.status(400).json({ error: 'El ID del programa es requerido para el pago de mensualidades.' });
+            if (!periodo_pagado || !program_id) {
+                return res.status(400).json({ error: 'El período de pago y el ID del programa son requeridos para las mensualidades.' });
             }
 
-            const studentProgramInfo = await pool.query(
-                `SELECT
+            // CONSULTA CORREGIDA: Ahora valida la inscripción usando el array `programas_ids`.
+            const studentProgramInfoQuery = `
+                SELECT
                     s.nombre AS student_nombre,
                     s.apellido AS student_apellido,
                     i.monto AS costo_mensual_esperado,
                     i.nombre AS programa_nombre
-                 FROM students s
-                 JOIN estudiante_programas ep ON s.id = ep.estudiante_id
-                 JOIN public.inventario i ON ep.programa_id = i.id
-                 WHERE s.id = $1 AND ep.programa_id = $2`,
-                [student_id, program_id]
-            );
+                FROM
+                    students s,
+                    inventario i
+                WHERE
+                    s.id = $1
+                    AND i.id = $2
+                    -- La validación clave: ¿El programa que se paga está en la lista de programas del estudiante?
+                    AND s.programas_ids @> ARRAY[$2::INT];
+            `;
+
+            const studentProgramInfo = await pool.query(studentProgramInfoQuery, [student_id, program_id]);
 
             if (studentProgramInfo.rows.length === 0) {
-                return res.status(404).json({ message: `Estudiante ${student_id} no está inscrito en el programa ${program_id}, o programa no encontrado.` });
+                return res.status(404).json({ message: `El estudiante (ID: ${student_id}) no está inscrito en el programa (ID: ${program_id}).` });
             }
-
+            
+            // El resto de tu lógica de negocio para comparar montos permanece igual.
             const { costo_mensual_esperado, student_nombre, student_apellido, programa_nombre } = studentProgramInfo.rows[0];
             costo_esperado = parseFloat(costo_mensual_esperado);
 
             if (parseFloat(monto) < costo_esperado) {
-                console.warn(`[${new Date().toLocaleString('es-VE', { timeZone: 'America/Caracas' })}] Advertencia: El estudiante ${student_nombre} ${student_apellido} (ID: ${student_id}) pagó $${monto} por la mensualidad de ${periodo_pagado} del programa "${programa_nombre}", pero el costo esperado es $${costo_esperado}.`);
+                console.warn(`Advertencia: El estudiante ${student_nombre} ${student_apellido} pagó $${monto} por la mensualidad de ${periodo_pagado} del programa "${programa_nombre}", pero el costo esperado es $${costo_esperado}.`);
             } else if (parseFloat(monto) > costo_esperado) {
-                console.warn(`[${new Date().toLocaleString('es-VE', { timeZone: 'America/Caracas' })}] Advertencia: El estudiante ${student_nombre} ${student_apellido} (ID: ${student_id}) pagó $${monto} por la mensualidad de ${periodo_pagado} del programa "${programa_nombre}", lo cual es mayor al costo esperado de $${costo_esperado}.`);
+                console.warn(`Advertencia: El estudiante ${student_nombre} ${student_apellido} pagó $${monto} por la mensualidad de ${periodo_pagado} del programa "${programa_nombre}", lo cual es mayor al costo esperado de $${costo_esperado}.`);
             }
         }
 
         const estado_pago_final = 'Pagado';
 
         const payment = await createPago(
-            student_id,
-            tipo_pago_id,
-            monto,
-            periodo_pagado || null,
-            metodo_pago,
-            referencia_transaccion || null,
-            estado_pago_final,
-            observaciones || null
+            student_id, tipo_pago_id, monto, periodo_pagado || null,
+            metodo_pago, referencia_transaccion || null, estado_pago_final, observaciones || null
         );
 
         if (tipo_pago_nombre === 'Matrícula') {
             await pool.query('UPDATE students SET estado_matricula = TRUE, updated_at = NOW() WHERE id = $1', [student_id]);
         }
 
-        // --- Bloque de envío de correo (comentado por ti) ---
-        /*
-        const studentInfo = await pool.query('SELECT email, nombre, apellido FROM students WHERE id = $1', [student_id]);
-        const studentEmail = studentInfo.rows[0]?.email;
-        const studentFullName = `${studentInfo.rows[0]?.nombre} ${studentInfo.rows[0]?.apellido}`;
-
-        if (studentEmail) {
-            const transporter = nodemailer.createTransport({
-                service: 'gmail',
-                auth: {
-                    user: process.env.EMAIL_USER,
-                    pass: process.env.EMAIL_PASS,
-                }
-            });
-
-            const templatePath = path.join(__dirname, '../../templates', 'paymentConfirmationTemplate.html');
-            const emailContent = renderTemplate(templatePath, {
-                student_name: studentFullName,
-                payment_date: new Date(payment.fecha_pago).toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' }),
-                payment_type: tipo_pago_nombre,
-                payment_amount: parseFloat(monto).toFixed(2),
-                payment_period: periodo_pagado || 'N/A',
-                payment_method: metodo_pago,
-                reference_id: referencia_transaccion || 'N/A',
-                costo_esperado_info: tipo_pago_nombre === 'Mensualidad' ? `(Costo esperado: $${costo_esperado.toFixed(2)})` : ''
-            });
-
-            const mailOptions = {
-                from: process.env.EMAIL_USER,
-                to: studentEmail,
-                subject: `Confirmación de Pago: ${tipo_pago_nombre}`,
-                html: emailContent,
-            };
-            await transporter.sendMail(mailOptions);
-            console.log(`[${new Date().toLocaleString('es-VE', { timeZone: 'America/Caracas' })}] Correo de confirmación de pago enviado a ${studentEmail}`);
-        } else {
-            console.warn(`[${new Date().toLocaleString('es-VE', { timeZone: 'America/Caracas' })}] No se pudo enviar correo de confirmación: email del estudiante ${student_id} no encontrado.`);
-        }
-        */
+        // --- Bloque de envío de correo (sin cambios) ---
 
         res.status(201).json(payment);
 
     } catch (err) {
-        console.error(`[${new Date().toLocaleString('es-VE', { timeZone: 'America/Caracas' })}] Error al registrar pago:`, err);
+        console.error(`Error al registrar pago:`, err);
         res.status(500).json({ error: 'Error interno del servidor al registrar el pago.' });
     }
 };
@@ -251,10 +211,10 @@ const updateEstadoPagoController = async (req, res) => {
                     html: emailContent,
                 };
                 await transporter.sendMail(mailOptions);
-                console.log(`[${new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' })}] Correo de actualización de estado de pago enviado a ${studentEmail}`);
+                console.log(`[${new Date().toLocaleString('es-VE', { timeZone: 'America/Caracas' })}] Correo de actualización de estado de pago enviado a ${studentEmail}`);
             }
         } else {
-            console.log(`[${new Date().toLocaleString('es-VE', { timeZone: 'America/Bogota' })}] Estado de pago no es 'Pagado', no se enviará correo de confirmación. Estado actual: ${estado}`);
+            console.log(`[${new Date().toLocaleString('es-VE', { timeZone: 'America/Caracas' })}] Estado de pago no es 'Pagado', no se enviará correo de confirmación. Estado actual: ${estado}`);
         }
         res.status(200).json({
             message: `Estado de pago actualizado a "${estado}".` + (estado === 'Pagado' && studentEmail ? ' Correo enviado.' : ''),
@@ -294,9 +254,6 @@ const getTotalPagosByStudentIdController = async (req, res) => {
 };
 
 // --- Obtener información del programa de un estudiante (para el frontend) ---
-
-
-// --- NUEVA FUNCIÓN PARA OBTENER LOS TIPOS DE PAGO ---
 const getStudentProgramInfoController = async (req, res) => {
     const { student_id } = req.params;
 
@@ -305,7 +262,7 @@ const getStudentProgramInfoController = async (req, res) => {
     }
 
     try {
-        // QUERY CORREGIDA: Usamos una sintaxis de JOIN explícita con `unnest`.
+        // La consulta correcta usa JOIN con unnest para ser explícita y evitar errores de sintaxis.
         const query = `
             SELECT
                 i.id AS programa_id,
@@ -315,9 +272,10 @@ const getStudentProgramInfoController = async (req, res) => {
                 s.apellido AS student_apellido
             FROM
                 students s
-            -- FORMA CORRECTA Y EXPLÍCITA DE UNIR CON EL RESULTADO DE UNNEST
+            -- Une la tabla students con el resultado de "desenrollar" el array de programas.
             JOIN 
                 unnest(s.programas_ids) AS programa_id_en_array ON true
+            -- Une el resultado anterior con la tabla de inventario para obtener los detalles.
             JOIN 
                 public.inventario i ON programa_id_en_array = i.id
             WHERE 
@@ -334,6 +292,17 @@ const getStudentProgramInfoController = async (req, res) => {
     } catch (error) {
         console.error(`Error al obtener info de los programas del estudiante:`, error);
         res.status(500).json({ message: 'Error interno del servidor.' });
+    }
+};
+
+// --- NUEVA FUNCIÓN PARA OBTENER LOS TIPOS DE PAGO ---
+export const getPaymentTypesController = async (req, res) => {
+    try {
+        const { rows } = await pool.query('SELECT id, nombre FROM tipos_pago ORDER BY nombre ASC;');
+        res.status(200).json(rows);
+    } catch (error) {
+        console.error(`[${new Date().toLocaleString('es-VE', { timeZone: 'America/Caracas' })}] Error al obtener tipos de pago:`, error);
+        res.status(500).json({ error: 'Error interno del servidor al obtener tipos de pago.' });
     }
 };
 
