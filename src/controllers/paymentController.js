@@ -251,10 +251,10 @@ const updateEstadoPagoController = async (req, res) => {
                     html: emailContent,
                 };
                 await transporter.sendMail(mailOptions);
-                console.log(`[${new Date().toLocaleString('es-VE', { timeZone: 'America/Caracas' })}] Correo de actualización de estado de pago enviado a ${studentEmail}`);
+                console.log(`[${new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' })}] Correo de actualización de estado de pago enviado a ${studentEmail}`);
             }
         } else {
-            console.log(`[${new Date().toLocaleString('es-VE', { timeZone: 'America/Caracas' })}] Estado de pago no es 'Pagado', no se enviará correo de confirmación. Estado actual: ${estado}`);
+            console.log(`[${new Date().toLocaleString('es-VE', { timeZone: 'America/Bogota' })}] Estado de pago no es 'Pagado', no se enviará correo de confirmación. Estado actual: ${estado}`);
         }
         res.status(200).json({
             message: `Estado de pago actualizado a "${estado}".` + (estado === 'Pagado' && studentEmail ? ' Correo enviado.' : ''),
@@ -294,42 +294,46 @@ const getTotalPagosByStudentIdController = async (req, res) => {
 };
 
 // --- Obtener información del programa de un estudiante (para el frontend) ---
+
+
+// --- NUEVA FUNCIÓN PARA OBTENER LOS TIPOS DE PAGO ---
 const getStudentProgramInfoController = async (req, res) => {
     const { student_id } = req.params;
+
+    if (!student_id || isNaN(student_id)) {
+        return res.status(400).json({ error: 'ID de estudiante inválido.' });
+    }
+
     try {
-        const result = await pool.query(
-            `SELECT
-                ep.programa_id,
+        // QUERY CORREGIDA: Usamos una sintaxis de JOIN explícita con `unnest`.
+        const query = `
+            SELECT
+                i.id AS programa_id,
                 i.nombre AS programa_nombre,
                 i.monto AS costo_mensual_esperado,
                 s.nombre AS student_nombre,
                 s.apellido AS student_apellido
-             FROM estudiante_programas ep
-             JOIN public.inventario i ON ep.programa_id = i.id
-             JOIN students s ON ep.estudiante_id = s.id
-             WHERE ep.estudiante_id = $1`,
-            [student_id]
-        );
+            FROM
+                students s
+            -- FORMA CORRECTA Y EXPLÍCITA DE UNIR CON EL RESULTADO DE UNNEST
+            JOIN 
+                unnest(s.programas_ids) AS programa_id_en_array ON true
+            JOIN 
+                public.inventario i ON programa_id_en_array = i.id
+            WHERE 
+                s.id = $1;
+        `;
+        
+        const result = await pool.query(query, [student_id]);
 
         if (result.rows.length > 0) {
             res.status(200).json(result.rows);
         } else {
-            res.status(404).json({ message: 'Estudiante no inscrito en ningún programa o programas no encontrados.' });
+            res.status(404).json({ message: 'No se encontraron programas asociados para este estudiante.' });
         }
     } catch (error) {
-        console.error(`[${new Date().toLocaleString('es-VE', { timeZone: 'America/Caracas' })}] Error al obtener info de los programas del estudiante:`, error);
+        console.error(`Error al obtener info de los programas del estudiante:`, error);
         res.status(500).json({ message: 'Error interno del servidor.' });
-    }
-};
-
-// --- NUEVA FUNCIÓN PARA OBTENER LOS TIPOS DE PAGO ---
-export const getPaymentTypesController = async (req, res) => {
-    try {
-        const { rows } = await pool.query('SELECT id, nombre FROM tipos_pago ORDER BY nombre ASC;');
-        res.status(200).json(rows);
-    } catch (error) {
-        console.error(`[${new Date().toLocaleString('es-VE', { timeZone: 'America/Caracas' })}] Error al obtener tipos de pago:`, error);
-        res.status(500).json({ error: 'Error interno del servidor al obtener tipos de pago.' });
     }
 };
 
