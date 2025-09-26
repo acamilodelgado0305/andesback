@@ -89,7 +89,6 @@ const getGradesByStudentIdController = async (req, res) => {
 };
 
 
-
 const getGradesByStudentDocumentController = async (req, res) => {
     const { numero_documento } = req.params;
 
@@ -98,28 +97,26 @@ const getGradesByStudentDocumentController = async (req, res) => {
     }
 
     try {
-        // ... (la primera parte que busca al estudiante no cambia)
+        // 1. PRIMERA CONSULTA: Corregida para usar el array `programas_ids`.
         const studentQuery = `
-           SELECT
-    s.id,
-    s.nombre,
-    s.apellido,
-    s.numero_documento,
-    p.nombre AS programa_nombre, -- Nombre del programa desde la tabla 'inventario'
-    u.name AS coordinador       -- Asumo que quieres el nombre del coordinador desde una tabla 'users'
-FROM
-    students s
--- 1. Unimos students con la tabla intermedia 'estudiante_programas' usando el ID del estudiante.
-LEFT JOIN
-    estudiante_programas ep ON s.id = ep.estudiante_id
--- 2. Unimos la tabla intermedia con 'inventario' (tus programas) usando el ID del programa.
-LEFT JOIN
-    inventario p ON ep.programa_id = p.id
--- 3. Unimos students con 'users' para obtener el nombre del coordinador (opcional, pero estaba en tu código original).
-LEFT JOIN
-    users u ON s.coordinador_id = u.id
-WHERE
-    s.numero_documento = $1;
+            SELECT
+                s.id,
+                s.nombre,
+                s.apellido,
+                s.numero_documento,
+                u.name AS coordinador,
+                -- Usamos una subconsulta con array_agg para obtener TODOS los nombres de los programas
+                (
+                    SELECT array_agg(i.nombre ORDER BY i.nombre)
+                    FROM inventario i
+                    WHERE i.id = ANY(s.programas_ids)
+                ) AS programas_nombres -- Devuelve un array de textos, ej: ['Bachillerato', 'Técnico en Sistemas']
+            FROM
+                students s
+            LEFT JOIN
+                users u ON s.coordinador_id = u.id
+            WHERE
+                s.numero_documento = $1;
         `;
         const studentResult = await pool.query(studentQuery, [numero_documento]);
 
@@ -129,15 +126,18 @@ WHERE
 
         const studentDataFromDB = studentResult.rows[0];
         const studentIdForPDF = studentDataFromDB.id;
+
+        // 2. LÓGICA DE JS ACTUALIZADA: Manejamos el array de nombres de programas.
         const studentInfoForPDF = {
             nombre: studentDataFromDB.nombre,
             apellido: studentDataFromDB.apellido,
-            programa_nombre: studentDataFromDB.programa_nombre || 'No asignado',
+            // Unimos el array de programas en un solo string para mostrarlo. ¡Ahora se ven todos!
+            programa_nombre: studentDataFromDB.programas_nombres ? studentDataFromDB.programas_nombres.join(', ') : 'No asignado',
             coordinador: studentDataFromDB.coordinador || 'No asignado',
             documento: studentDataFromDB.numero_documento
         };
 
-        // MODIFICADO: Se añade el JOIN con la tabla `materias` para filtrar solo las activas.
+        // 3. SEGUNDA CONSULTA: Esta parte ya estaba correcta y no necesita cambios.
         const gradesQuery = `
             SELECT 
                 g.materia, 
@@ -151,7 +151,6 @@ WHERE
             ORDER BY 
                 g.materia ASC;
         `;
-
         const gradesResult = await pool.query(gradesQuery, [studentIdForPDF]);
         const gradesForPDF = gradesResult.rows;
 
