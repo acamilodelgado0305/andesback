@@ -97,7 +97,7 @@ const getGradesByStudentDocumentController = async (req, res) => {
     }
 
     try {
-        // 1. PRIMERA CONSULTA: Corregida para usar el array `programas_ids`.
+        // 1. PRIMERA CONSULTA: Corregida para usar el array `programa_id`.
         const studentQuery = `
             SELECT
                 s.id,
@@ -109,7 +109,7 @@ const getGradesByStudentDocumentController = async (req, res) => {
                 (
                     SELECT array_agg(i.nombre ORDER BY i.nombre)
                     FROM inventario i
-                    WHERE i.id = ANY(s.programas_ids)
+                    WHERE i.id = ANY(s.programa_id)
                 ) AS programas_nombres -- Devuelve un array de textos, ej: ['Bachillerato', 'Técnico en Sistemas']
             FROM
                 students s

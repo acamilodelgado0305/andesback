@@ -13,7 +13,7 @@ const handleServerError = (res, err, message) => {
 // LÓGICA DE CREACIÓN (CREATE)
 // =======================================================
 const createStudentController = async (req, res) => {
-    // 1. Desestructuramos los datos del body. Nota el cambio a `programas_ids` para mayor consistencia.
+    // 1. Desestructuramos los datos del body, incluyendo 'programasIds'
     const {
         nombre,
         apellido,
@@ -27,10 +27,10 @@ const createStudentController = async (req, res) => {
         telefonoWhatsapp,
         simat,
         pagoMatricula,
-        programas_ids, // <-- El array de IDs de programas.
+        programasIds, // <-- Leemos 'programasIds' (plural, en array)
         coordinador_id,
         modalidad_estudio,
-        ultimoCursoVisto,
+        ultimo_curso_visto,
         eps,
         rh,
         nombreAcudiente,
@@ -39,29 +39,25 @@ const createStudentController = async (req, res) => {
         direccionAcudiente,
     } = req.body;
 
-    // 2. Validación: Nos aseguramos de que `programas_ids` sea un array.
-    if (!nombre || !apellido || !email || !numeroDocumento || !programas_ids || !Array.isArray(programas_ids)) {
-        return res.status(400).json({ error: 'Faltan campos obligatorios o el formato de programas es incorrecto.' });
-    }
-    if (!coordinador_id || isNaN(parseInt(coordinador_id))) {
-        return res.status(400).json({ error: 'ID de coordinador inválido o no proporcionado.' });
+    // 2. Validación actualizada para verificar el array
+    if (!nombre || !apellido || !email || !numeroDocumento || !programasIds || !Array.isArray(programasIds) || programasIds.length === 0) {
+        return res.status(400).json({ error: 'Faltan campos obligatorios o el array de programas está vacío.' });
     }
 
-    // 3. Conversión de valores a booleanos (esto sigue siendo una buena práctica).
-    const estadoMatriculaBoolean = (pagoMatricula === 'Pagado');
-    const simatBoolean = (simat === 'Activo');
+    // 3. Extraemos el primer (y único) ID del array
+    const programa_id = programasIds[0];
+
+    const estadoMatriculaBoolean = (pagoMatricula === true || pagoMatricula === 'Pagado');
+    const simatBoolean = (simat === true || simat === 'Activo');
 
     try {
-        // 4. Se ha simplificado la query para incluir la columna `programas_ids` directamente.
-        //    Ahora es una única operación atómica, no necesitamos una transacción explícita (BEGIN/COMMIT).
         const studentInsertQuery = `
             INSERT INTO students (
                 nombre, apellido, email, tipo_documento, numero_documento, lugar_expedicion,
                 fecha_nacimiento, lugar_nacimiento, telefono_llamadas, telefono_whatsapp,
                 simat, estado_matricula, coordinador_id, modalidad_estudio,
                 ultimo_curso_visto, eps, rh, nombre_acudiente, tipo_documento_acudiente,
-                telefono_acudiente, direccion_acudiente, 
-                programas_ids -- <-- NUEVA COLUMNA AÑADIDA
+                telefono_acudiente, direccion_acudiente, programa_id
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
             RETURNING id;
@@ -73,26 +69,21 @@ const createStudentController = async (req, res) => {
                 nombre, apellido, email, tipoDocumento, numeroDocumento, lugarExpedicion,
                 fechaNacimiento, lugarNacimiento, telefonoLlamadas, telefonoWhatsapp,
                 simatBoolean, estadoMatriculaBoolean, coordinador_id, modalidad_estudio,
-                ultimoCursoVisto, eps, rh, nombreAcudiente, tipoDocumentoAcudiente,
+                ultimo_curso_visto, eps, rh, nombreAcudiente, tipoDocumentoAcudiente,
                 telefonoAcudiente, direccionAcudiente,
-                programas_ids // <-- Se pasa el array directamente. node-postgres lo convierte.
+                programa_id // <-- Usamos la variable con el ID extraído
             ]
         );
         
         const newStudentId = studentResult.rows[0].id;
-
-        // ¡Ya no es necesario el bucle para insertar en `estudiante_programas`!
-
         res.status(201).json({ message: "Estudiante creado exitosamente", studentId: newStudentId });
 
     } catch (err) {
-        // Manejo de errores (puedes tener una función helper para esto).
         console.error('Error al crear el estudiante:', err);
-        // Error de llave duplicada (ej: email o documento ya existen)
         if (err.code === '23505') { 
-            return res.status(409).json({ error: `El estudiante con este email o número de documento ya existe. Detalle: ${err.detail}` });
+            return res.status(409).json({ error: `Ya existe un estudiante con ese email o documento.` });
         }
-        res.status(500).json({ error: 'Error interno del servidor' });
+        res.status(500).json({ error: 'Error interno del servidor.' });
     }
 };
 
@@ -101,61 +92,44 @@ const createStudentController = async (req, res) => {
 // =======================================================
 const getStudentsController = async (req, res) => {
     try {
-        // QUERY MEJORADA: Eliminamos los JOINs con la tabla intermedia.
-        // Usamos una subconsulta correlacionada para obtener los detalles de los programas.
+        // QUERY CORREGIDA: Usamos JOINs con la tabla intermedia y agregación JSON.
         const query = `
             SELECT
-                s.id,
-                s.nombre,
-                s.apellido,
-                s.email,
-                s.tipo_documento,
-                s.numero_documento,
-                s.lugar_expedicion,
-                s.fecha_nacimiento,
-                s.lugar_nacimiento,
-                s.telefono_llamadas,
-                s.telefono_whatsapp,
-                s.simat,
-                s.estado_matricula,
+                s.*, -- 1. Seleccionamos todos los campos del estudiante.
                 u.name AS coordinador_nombre,
-                s.modalidad_estudio,
-                s.ultimo_curso_visto,
-                s.fecha_inscripcion,
-                s.activo,
-                s.created_at,
-                s.updated_at,
-                s.fecha_graduacion,
-                s.matricula,
-                s.programas_ids, -- Opcional: devolver también el array de IDs puros.
 
-                -- 1. Aquí está la magia: Una subconsulta para construir el JSON de programas.
-                (
-                    SELECT COALESCE(json_agg(
+                -- 2. Agrupamos todos los programas asociados en un array JSON.
+                COALESCE(
+                    json_agg(
                         json_build_object(
                             'programa_id', i.id,
                             'nombre_programa', i.nombre,
                             'monto_programa', i.monto
                         ) ORDER BY i.nombre
-                    ), '[]'::json)
-                    FROM inventario i
-                    -- 2. La condición clave: busca donde el ID del programa esté en nuestro array.
-                    WHERE i.id = ANY(s.programas_ids)
+                    ) FILTER (WHERE i.id IS NOT NULL),
+                    '[]'::json
                 ) AS programas_asociados
             FROM
                 students s
-            LEFT JOIN
-                users u ON s.coordinador_id = u.id -- Mantenemos el JOIN para el nombre del coordinador
+            LEFT JOIN users u ON s.coordinador_id = u.id
+            -- Unimos con la tabla intermedia para encontrar las relaciones.
+            LEFT JOIN estudiante_programas ep ON s.id = ep.estudiante_id
+            -- Unimos con la tabla de inventario para obtener los detalles del programa.
+            LEFT JOIN inventario i ON ep.programa_id = i.id
+            -- 3. Agrupamos por estudiante para que cada uno aparezca solo una vez.
+            GROUP BY
+                s.id, u.name
             ORDER BY
                 s.nombre, s.apellido;
         `;
         
-        const result = await pool.query(query);
-        res.status(200).json(result.rows);
+        const { rows } = await pool.query(query);
+        res.status(200).json(rows);
 
     } catch (err) {
-        // Usamos tu manejador de errores existente
-        handleServerError(res, err, 'Error obteniendo la lista de estudiantes.');
+        console.error('Error obteniendo la lista de estudiantes:', err);
+        // Asegúrate de que handleServerError esté definido o reemplázalo
+        res.status(500).json({ error: 'Error interno del servidor al obtener los estudiantes.' });
     }
 };
 
@@ -182,7 +156,7 @@ const getStudentByIdController = async (req, res) => {
                 s.telefono, s.numero_documento, s.fecha_graduacion, 
                 s.matricula, s.eps, s.rh, s.documento,
                 s.created_at, s.updated_at,
-                s.programas_ids, -- Añadimos el array de IDs a la selección
+                s.programa_id, -- Añadimos el array de IDs a la selección
 
                 -- Datos del Acudiente
                 s.nombre_acudiente, s.tipo_documento_acudiente,
@@ -205,7 +179,7 @@ const getStudentByIdController = async (req, res) => {
                         ) ORDER BY i.nombre
                     ), '[]'::json)
                     FROM inventario i
-                    WHERE i.id = ANY(s.programas_ids)
+                    WHERE i.id = ANY(s.programa_id)
                 ) AS programas_asociados
             FROM
                 students s
@@ -252,7 +226,7 @@ const getStudentByIdController = async (req, res) => {
             documento_url: flatStudent.documento,
             created_at: flatStudent.created_at,
             updated_at: flatStudent.updated_at,
-            programas_ids: flatStudent.programas_ids || [], // Devolvemos el array de IDs
+            programa_id: flatStudent.programa_id || [], // Devolvemos el array de IDs
             acudiente: flatStudent.nombre_acudiente ? {
                 nombre: flatStudent.nombre_acudiente,
                 tipo_documento: flatStudent.tipo_documento_acudiente,
@@ -659,16 +633,16 @@ const getStudentsByProgramTypeController = async (req, res) => {
             )
             SELECT
                 s.id, s.nombre, s.apellido, s.email, s.telefono_whatsapp,
-                s.activo, s.modalidad_estudio, s.programas_ids,
+                s.activo, s.modalidad_estudio, s.programa_id,
                 (
                     SELECT json_agg(i.nombre ORDER BY i.nombre)
                     FROM inventario i
-                    WHERE i.id = ANY(s.programas_ids)
+                    WHERE i.id = ANY(s.programa_id)
                 ) AS nombres_programas
             FROM
                 students s
             WHERE
-                s.programas_ids && (SELECT array_agg(id) FROM programas_filtrados)
+                s.programa_id && (SELECT array_agg(id) FROM programas_filtrados)
                 -- CORRECCIÓN APLICADA AQUÍ: Comparamos texto con texto.
                 AND ($2::TEXT IS NULL OR s.activo = $2::TEXT)
                 AND ($3::TEXT IS NULL OR s.modalidad_estudio = $3)
@@ -701,67 +675,44 @@ const getStudentsByCoordinatorIdController = async (req, res) => {
     }
 
     try {
-        // QUERY ACTUALIZADA: Aplicamos la misma lógica de subconsulta que en los controladores anteriores.
+        // QUERY CORREGIDA: Es la misma que getStudents, pero con un filtro WHERE.
         const query = `
             SELECT
-                s.id,
-                s.nombre,
-                s.apellido,
-                s.email,
-                s.tipo_documento,
-                s.numero_documento,
-                s.lugar_expedicion,
-                s.fecha_nacimiento,
-                s.lugar_nacimiento,
-                s.telefono_llamadas,
-                s.telefono_whatsapp,
-                s.simat,
-                s.estado_matricula,
+                s.*,
                 u.name AS coordinador_nombre,
-                s.modalidad_estudio,
-                s.ultimo_curso_visto,
-                s.fecha_inscripcion,
-                s.activo,
-                s.created_at,
-                s.updated_at,
-                s.fecha_graduacion,
-                s.matricula,
-                s.programas_ids,
-
-                -- Subconsulta para obtener los detalles de los programas asociados
-                (
-                    SELECT COALESCE(json_agg(
+                COALESCE(
+                    json_agg(
                         json_build_object(
                             'programa_id', i.id,
                             'nombre_programa', i.nombre,
                             'monto_programa', i.monto
                         ) ORDER BY i.nombre
-                    ), '[]'::json)
-                    FROM inventario i
-                    WHERE i.id = ANY(s.programas_ids)
+                    ) FILTER (WHERE i.id IS NOT NULL),
+                    '[]'::json
                 ) AS programas_asociados
             FROM
                 students s
-            LEFT JOIN
-                users u ON s.coordinador_id = u.id
+            LEFT JOIN users u ON s.coordinador_id = u.id
+            LEFT JOIN estudiante_programas ep ON s.id = ep.estudiante_id
+            LEFT JOIN inventario i ON ep.programa_id = i.id
+            -- 1. La única diferencia: Filtramos por el ID del coordinador.
             WHERE
-                s.coordinador_id = $1 -- El filtro principal se mantiene
+                s.coordinador_id = $1
+            GROUP BY
+                s.id, u.name
             ORDER BY
                 s.nombre, s.apellido;
         `;
         
         const result = await pool.query(query, [coordinatorId]);
 
-        // La lógica para manejar la respuesta no necesita cambios.
-        if (result.rows.length === 0) {
-            return res.status(404).json({ message: 'No se encontraron estudiantes para este coordinador.' });
-        }
-
+        // No es necesario verificar si hay filas aquí, si no hay, se devolverá un array vacío, lo cual es correcto.
         res.status(200).json(result.rows);
 
     } catch (err) {
-        // Asumiendo que tienes una función `handleServerError`
-        handleServerError(res, err, 'Error obteniendo estudiantes por ID de coordinador.');
+        console.error('Error obteniendo estudiantes por coordinador:', err);
+         // Asegúrate de que handleServerError esté definido o reemplázalo
+        res.status(500).json({ error: 'Error interno del servidor al obtener estudiantes por coordinador.' });
     }
 };
 

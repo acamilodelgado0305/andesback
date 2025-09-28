@@ -51,7 +51,7 @@ const createPagoController = async (req, res) => {
                 return res.status(400).json({ error: 'El período de pago y el ID del programa son requeridos para las mensualidades.' });
             }
 
-            // CONSULTA CORREGIDA: Ahora valida la inscripción usando el array `programas_ids`.
+            // CONSULTA CORREGIDA: Ahora valida la inscripción usando el array `programa_id`.
             const studentProgramInfoQuery = `
                 SELECT
                     s.nombre AS student_nombre,
@@ -65,7 +65,7 @@ const createPagoController = async (req, res) => {
                     s.id = $1
                     AND i.id = $2
                     -- La validación clave: ¿El programa que se paga está en la lista de programas del estudiante?
-                    AND s.programas_ids @> ARRAY[$2::INT];
+                    AND s.programa_id @> ARRAY[$2::INT];
             `;
 
             const studentProgramInfo = await pool.query(studentProgramInfoQuery, [student_id, program_id]);
@@ -274,7 +274,7 @@ const getStudentProgramInfoController = async (req, res) => {
                 students s
             -- Une la tabla students con el resultado de "desenrollar" el array de programas.
             JOIN 
-                unnest(s.programas_ids) AS programa_id_en_array ON true
+                unnest(s.programa_id) AS programa_id_en_array ON true
             -- Une el resultado anterior con la tabla de inventario para obtener los detalles.
             JOIN 
                 public.inventario i ON programa_id_en_array = i.id
