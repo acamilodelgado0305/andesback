@@ -143,48 +143,31 @@ const getStudentByIdController = async (req, res) => {
     }
 
     try {
-        // QUERY ACTUALIZADA: Se eliminan los JOINs a la tabla intermedia y el GROUP BY.
-        // Se añade la subconsulta para obtener los programas.
+        // 1. QUERY CORREGIDA Y SIMPLIFICADA
+        // Usamos un simple LEFT JOIN para obtener los datos del programa.
         const query = `
             SELECT
-                -- Datos principales del estudiante
-                s.id, s.nombre, s.apellido, s.email, s.tipo_documento,
-                s.numero_documento, s.lugar_expedicion, s.fecha_nacimiento,
-                s.lugar_nacimiento, s.telefono_llamadas, s.telefono_whatsapp,
-                s.simat, s.estado_matricula, s.modalidad_estudio,
-                s.ultimo_curso_visto, s.fecha_inscripcion, s.activo,
-                s.telefono, s.numero_documento, s.fecha_graduacion, 
-                s.matricula, s.eps, s.rh, s.documento,
-                s.created_at, s.updated_at,
-                s.programa_id, -- Añadimos el array de IDs a la selección
-
-                -- Datos del Acudiente
-                s.nombre_acudiente, s.tipo_documento_acudiente,
-                s.telefono_acudiente, s.direccion_acudiente,
+                s.*, -- Todos los campos del estudiante
                 
                 -- Campos del Coordinador
-                u.id AS coordinador_id, u.name AS coordinador_nombre,
+                u.id AS coordinador_id, 
+                u.name AS coordinador_nombre,
                 
                 -- Campos del Negocio (a través del coordinador)
-                b.id AS business_id, b.name AS business_name,
+                b.id AS business_id, 
+                b.name AS business_name,
                 b.profile_picture_url AS business_profile_picture_url,
 
-                -- Subconsulta para obtener los detalles de los programas asociados
-                (
-                    SELECT COALESCE(json_agg(
-                        json_build_object(
-                            'programa_id', i.id,
-                            'nombre_programa', i.nombre,
-                            'monto_programa', i.monto
-                        ) ORDER BY i.nombre
-                    ), '[]'::json)
-                    FROM inventario i
-                    WHERE i.id = ANY(s.programa_id)
-                ) AS programas_asociados
+                -- Campos del Programa (a través del JOIN directo)
+                i.id AS programa_id_actual, 
+                i.nombre AS nombre_programa, 
+                i.monto AS monto_programa
             FROM
                 students s
             LEFT JOIN users u ON s.coordinador_id = u.id
             LEFT JOIN businesses b ON u.business_id = b.id
+            -- Unimos directamente con inventario usando la columna programa_id del estudiante
+            LEFT JOIN inventario i ON s.programa_id = i.id
             WHERE
                 s.id = $1;
         `;
@@ -197,8 +180,8 @@ const getStudentByIdController = async (req, res) => {
 
         const flatStudent = result.rows[0];
 
-        // El código de mapeo de respuesta sigue funcionando perfectamente
-        // porque nuestra consulta devuelve el campo `programas_asociados` como antes.
+        // 2. CÓDIGO DE MAPEO AJUSTADO
+        // Construimos el objeto de respuesta final anidando la información.
         const studentResponse = {
             id: flatStudent.id,
             nombre: flatStudent.nombre,
@@ -212,7 +195,6 @@ const getStudentByIdController = async (req, res) => {
             telefono_llamadas: flatStudent.telefono_llamadas,
             telefono_whatsapp: flatStudent.telefono_whatsapp,
             telefono: flatStudent.telefono,
-            numero_documento: flatStudent.numero_documento,
             simat: flatStudent.simat,
             estado_matricula: flatStudent.estado_matricula,
             matricula: flatStudent.matricula,
@@ -226,7 +208,6 @@ const getStudentByIdController = async (req, res) => {
             documento_url: flatStudent.documento,
             created_at: flatStudent.created_at,
             updated_at: flatStudent.updated_at,
-            programa_id: flatStudent.programa_id || [], // Devolvemos el array de IDs
             acudiente: flatStudent.nombre_acudiente ? {
                 nombre: flatStudent.nombre_acudiente,
                 tipo_documento: flatStudent.tipo_documento_acudiente,
@@ -242,7 +223,12 @@ const getStudentByIdController = async (req, res) => {
                 name: flatStudent.business_name,
                 profilePictureUrl: flatStudent.business_profile_picture_url
             } : null,
-            programas_asociados: flatStudent.programas_asociados
+            // Creamos un objeto para el programa en lugar de un array
+            programa_asociado: flatStudent.programa_id_actual ? {
+                programa_id: flatStudent.programa_id_actual,
+                nombre_programa: flatStudent.nombre_programa,
+                monto_programa: flatStudent.monto_programa
+            } : null
         };
 
         res.status(200).json(studentResponse);
