@@ -607,7 +607,9 @@ const getStudentsByProgramTypeController = async (req, res) => {
     const programTypeFilter = tipo === 'bachillerato' ? 'Validacion' : 'Tecnico';
 
     try {
+        // ✅ CONSULTA FINAL Y CORRECTA PARA TU ESQUEMA
         const query = `
+            -- 1. Usamos tu lógica original para encontrar los IDs de los programas correctos
             WITH programas_filtrados AS (
                 SELECT id 
                 FROM inventario
@@ -617,20 +619,21 @@ const getStudentsByProgramTypeController = async (req, res) => {
                         ELSE 'Tecnico'
                     END = $1
             )
+            -- 2. Seleccionamos los estudiantes y unimos con inventario para obtener el nombre del programa
             SELECT
                 s.id, s.nombre, s.apellido, s.email, s.telefono_whatsapp,
-                s.activo, s.modalidad_estudio, s.programa_id,
-                (
-                    SELECT json_agg(i.nombre ORDER BY i.nombre)
-                    FROM inventario i
-                    WHERE i.id = ANY(s.programa_id)
-                ) AS nombres_programas
+                s.activo, s.modalidad_estudio,
+                i.nombre AS nombre_programa
             FROM
                 students s
+            JOIN 
+                inventario i ON s.programa_id = i.id
             WHERE
-                s.programa_id && (SELECT array_agg(id) FROM programas_filtrados)
-                -- CORRECCIÓN APLICADA AQUÍ: Comparamos texto con texto.
-                AND ($2::TEXT IS NULL OR s.activo = $2::TEXT)
+                -- 3. La condición clave: El programa del estudiante DEBE ESTAR EN la lista que filtramos
+                s.programa_id IN (SELECT id FROM programas_filtrados)
+                
+                -- Tus filtros opcionales (ya estaban bien)
+                AND ($2::TEXT IS NULL OR s.activo::TEXT = $2::TEXT)
                 AND ($3::TEXT IS NULL OR s.modalidad_estudio = $3)
             ORDER BY
                 s.apellido, s.nombre;

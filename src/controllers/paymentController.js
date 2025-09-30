@@ -44,14 +44,12 @@ const createPagoController = async (req, res) => {
         }
         const tipo_pago_id = tipoPagoResult.rows[0].id;
 
-        let costo_esperado = parseFloat(monto);
-
         if (tipo_pago_nombre === 'Mensualidad') {
             if (!periodo_pagado || !program_id) {
                 return res.status(400).json({ error: 'El período de pago y el ID del programa son requeridos para las mensualidades.' });
             }
 
-            // CONSULTA CORREGIDA: Ahora valida la inscripción usando el array `programa_id`.
+            // ✅ CONSULTA CORREGIDA: Se valida con una igualdad simple y un JOIN explícito.
             const studentProgramInfoQuery = `
                 SELECT
                     s.nombre AS student_nombre,
@@ -59,13 +57,11 @@ const createPagoController = async (req, res) => {
                     i.monto AS costo_mensual_esperado,
                     i.nombre AS programa_nombre
                 FROM
-                    students s,
-                    inventario i
+                    students s
+                JOIN
+                    inventario i ON s.programa_id = i.id
                 WHERE
-                    s.id = $1
-                    AND i.id = $2
-                    -- La validación clave: ¿El programa que se paga está en la lista de programas del estudiante?
-                    AND s.programa_id @> ARRAY[$2::INT];
+                    s.id = $1 AND s.programa_id = $2;
             `;
 
             const studentProgramInfo = await pool.query(studentProgramInfoQuery, [student_id, program_id]);
@@ -74,9 +70,8 @@ const createPagoController = async (req, res) => {
                 return res.status(404).json({ message: `El estudiante (ID: ${student_id}) no está inscrito en el programa (ID: ${program_id}).` });
             }
             
-            // El resto de tu lógica de negocio para comparar montos permanece igual.
             const { costo_mensual_esperado, student_nombre, student_apellido, programa_nombre } = studentProgramInfo.rows[0];
-            costo_esperado = parseFloat(costo_mensual_esperado);
+            const costo_esperado = parseFloat(costo_mensual_esperado);
 
             if (parseFloat(monto) < costo_esperado) {
                 console.warn(`Advertencia: El estudiante ${student_nombre} ${student_apellido} pagó $${monto} por la mensualidad de ${periodo_pagado} del programa "${programa_nombre}", pero el costo esperado es $${costo_esperado}.`);
@@ -262,7 +257,7 @@ const getStudentProgramInfoController = async (req, res) => {
     }
 
     try {
-        // La consulta correcta usa JOIN con unnest para ser explícita y evitar errores de sintaxis.
+        // ✅ CORRECCIÓN: Se utiliza un JOIN directo, ya que programa_id es un entero.
         const query = `
             SELECT
                 i.id AS programa_id,
@@ -272,25 +267,23 @@ const getStudentProgramInfoController = async (req, res) => {
                 s.apellido AS student_apellido
             FROM
                 students s
-            -- Une la tabla students con el resultado de "desenrollar" el array de programas.
             JOIN 
-                unnest(s.programa_id) AS programa_id_en_array ON true
-            -- Une el resultado anterior con la tabla de inventario para obtener los detalles.
-            JOIN 
-                public.inventario i ON programa_id_en_array = i.id
+                public.inventario i ON s.programa_id = i.id
             WHERE 
                 s.id = $1;
         `;
         
         const result = await pool.query(query, [student_id]);
 
+        // Se ajusta para devolver un solo objeto o un array de un solo elemento
         if (result.rows.length > 0) {
-            res.status(200).json(result.rows);
+            // Si esperas un solo programa por estudiante, puedes devolver el primer objeto
+            res.status(200).json(result.rows); 
         } else {
-            res.status(404).json({ message: 'No se encontraron programas asociados para este estudiante.' });
+            res.status(404).json({ message: 'No se encontró un programa asociado para este estudiante.' });
         }
     } catch (error) {
-        console.error(`Error al obtener info de los programas del estudiante:`, error);
+        console.error(`Error al obtener la info del programa del estudiante:`, error);
         res.status(500).json({ message: 'Error interno del servidor.' });
     }
 };
