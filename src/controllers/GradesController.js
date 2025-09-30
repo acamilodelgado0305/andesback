@@ -97,25 +97,22 @@ const getGradesByStudentDocumentController = async (req, res) => {
     }
 
     try {
-        // 1. PRIMERA CONSULTA: Corregida para usar el array `programa_id`.
+        // ✅ CONSULTA 1: Esta ya estaba correcta. Obtiene el nombre del programa con un JOIN.
         const studentQuery = `
-            SELECT
-                s.id,
-                s.nombre,
-                s.apellido,
-                s.numero_documento,
+            SELECT 
+                s.id, 
+                s.nombre, 
+                s.apellido, 
+                s.numero_documento, 
                 u.name AS coordinador,
-                -- Usamos una subconsulta con array_agg para obtener TODOS los nombres de los programas
-                (
-                    SELECT array_agg(i.nombre ORDER BY i.nombre)
-                    FROM inventario i
-                    WHERE i.id = ANY(s.programa_id)
-                ) AS programas_nombres -- Devuelve un array de textos, ej: ['Bachillerato', 'Técnico en Sistemas']
-            FROM
-                students s
-            LEFT JOIN
+                i.nombre AS programa_nombre
+            FROM 
+                students s 
+            LEFT JOIN 
                 users u ON s.coordinador_id = u.id
-            WHERE
+            LEFT JOIN
+                inventario i ON s.programa_id = i.id
+            WHERE 
                 s.numero_documento = $1;
         `;
         const studentResult = await pool.query(studentQuery, [numero_documento]);
@@ -127,28 +124,27 @@ const getGradesByStudentDocumentController = async (req, res) => {
         const studentDataFromDB = studentResult.rows[0];
         const studentIdForPDF = studentDataFromDB.id;
 
-        // 2. LÓGICA DE JS ACTUALIZADA: Manejamos el array de nombres de programas.
+        // La lógica de JS para procesar el resultado también estaba bien.
         const studentInfoForPDF = {
             nombre: studentDataFromDB.nombre,
             apellido: studentDataFromDB.apellido,
-            // Unimos el array de programas en un solo string para mostrarlo. ¡Ahora se ven todos!
-            programa_nombre: studentDataFromDB.programas_nombres ? studentDataFromDB.programas_nombres.join(', ') : 'No asignado',
+            programa_nombre: studentDataFromDB.programa_nombre || 'No asignado',
             coordinador: studentDataFromDB.coordinador || 'No asignado',
             documento: studentDataFromDB.numero_documento
         };
 
-        // 3. SEGUNDA CONSULTA: Esta parte ya estaba correcta y no necesita cambios.
+        // ✅ CONSULTA 2 CORREGIDA: Se une por el campo de texto 'nombre', pero de forma segura.
         const gradesQuery = `
-            SELECT 
-                g.materia, 
-                g.nota
-            FROM 
-                grades g
-            JOIN 
-                materias m ON g.materia = m.nombre
-            WHERE 
-                g.student_id = $1 AND m.activa = true
-            ORDER BY 
+            SELECT  
+                g.materia,  
+                g.nota 
+            FROM  
+                grades g 
+            JOIN  
+                materias m ON LOWER(TRIM(g.materia)) = LOWER(TRIM(m.nombre))
+            WHERE  
+                g.student_id = $1 AND m.activa = true 
+            ORDER BY  
                 g.materia ASC;
         `;
         const gradesResult = await pool.query(gradesQuery, [studentIdForPDF]);
