@@ -92,44 +92,73 @@ const createStudentController = async (req, res) => {
 // =======================================================
 const getStudentsController = async (req, res) => {
     try {
-        // QUERY CORREGIDA: Usamos JOINs con la tabla intermedia y agregación JSON.
+        // QUERY CORREGIDA: Un JOIN simple que refleja la relación actual.
         const query = `
             SELECT
-                s.*, -- 1. Seleccionamos todos los campos del estudiante.
+                s.*,
                 u.name AS coordinador_nombre,
 
-                -- 2. Agrupamos todos los programas asociados en un array JSON.
-                COALESCE(
-                    json_agg(
-                        json_build_object(
-                            'programa_id', i.id,
-                            'nombre_programa', i.nombre,
-                            'monto_programa', i.monto
-                        ) ORDER BY i.nombre
-                    ) FILTER (WHERE i.id IS NOT NULL),
-                    '[]'::json
-                ) AS programas_asociados
+                -- Obtenemos los detalles del programa asociado directamente
+                i.id AS programa_id,
+                i.nombre AS programa_nombre,
+                i.monto AS programa_monto,
+                i.descripcion AS programa_descripcion
             FROM
                 students s
             LEFT JOIN users u ON s.coordinador_id = u.id
-            -- Unimos con la tabla intermedia para encontrar las relaciones.
-            LEFT JOIN estudiante_programas ep ON s.id = ep.estudiante_id
-            -- Unimos con la tabla de inventario para obtener los detalles del programa.
-            LEFT JOIN inventario i ON ep.programa_id = i.id
-            -- 3. Agrupamos por estudiante para que cada uno aparezca solo una vez.
-            GROUP BY
-                s.id, u.name
+            LEFT JOIN inventario i ON s.programa_id = i.id -- Join directo
             ORDER BY
                 s.nombre, s.apellido;
         `;
-        
+
         const { rows } = await pool.query(query);
         res.status(200).json(rows);
 
     } catch (err) {
         console.error('Error obteniendo la lista de estudiantes:', err);
-        // Asegúrate de que handleServerError esté definido o reemplázalo
         res.status(500).json({ error: 'Error interno del servidor al obtener los estudiantes.' });
+    }
+};
+
+
+
+const getStudentsByCoordinatorIdController = async (req, res) => {
+    const { coordinatorId } = req.params;
+
+    if (!coordinatorId || isNaN(coordinatorId)) {
+        return res.status(400).json({ error: 'ID de coordinador inválido o no proporcionado.' });
+    }
+
+    try {
+        // QUERY CORREGIDA: Usamos el JOIN simple y directo, añadiendo el filtro WHERE.
+        const query = `
+            SELECT
+                s.*,
+                u.name AS coordinador_nombre,
+
+                -- Obtenemos los detalles del programa asociado directamente
+                i.id AS programa_id,
+                i.nombre AS programa_nombre,
+                i.monto AS programa_monto,
+                i.descripcion AS programa_descripcion
+            FROM
+                students s
+            LEFT JOIN users u ON s.coordinador_id = u.id
+            LEFT JOIN inventario i ON s.programa_id = i.id -- Join directo
+            WHERE
+                s.coordinador_id = $1 -- Filtro por coordinador
+            ORDER BY
+                s.nombre, s.apellido;
+        `;
+
+        const { rows } = await pool.query(query, [coordinatorId]);
+
+        // Devolver las filas (será un array vacío si el coordinador no tiene estudiantes, lo cual es correcto)
+        res.status(200).json(rows);
+
+    } catch (err) {
+        console.error('Error obteniendo estudiantes por coordinador:', err);
+        res.status(500).json({ error: 'Error interno del servidor al obtener estudiantes por coordinador.' });
     }
 };
 
@@ -656,54 +685,6 @@ const getStudentsByProgramTypeController = async (req, res) => {
 
 
 
-const getStudentsByCoordinatorIdController = async (req, res) => {
-    const { coordinatorId } = req.params;
-
-    if (!coordinatorId || isNaN(coordinatorId)) {
-        return res.status(400).json({ error: 'ID de coordinador inválido o no proporcionado.' });
-    }
-
-    try {
-        // QUERY CORREGIDA: Es la misma que getStudents, pero con un filtro WHERE.
-        const query = `
-            SELECT
-                s.*,
-                u.name AS coordinador_nombre,
-                COALESCE(
-                    json_agg(
-                        json_build_object(
-                            'programa_id', i.id,
-                            'nombre_programa', i.nombre,
-                            'monto_programa', i.monto
-                        ) ORDER BY i.nombre
-                    ) FILTER (WHERE i.id IS NOT NULL),
-                    '[]'::json
-                ) AS programas_asociados
-            FROM
-                students s
-            LEFT JOIN users u ON s.coordinador_id = u.id
-            LEFT JOIN estudiante_programas ep ON s.id = ep.estudiante_id
-            LEFT JOIN inventario i ON ep.programa_id = i.id
-            -- 1. La única diferencia: Filtramos por el ID del coordinador.
-            WHERE
-                s.coordinador_id = $1
-            GROUP BY
-                s.id, u.name
-            ORDER BY
-                s.nombre, s.apellido;
-        `;
-        
-        const result = await pool.query(query, [coordinatorId]);
-
-        // No es necesario verificar si hay filas aquí, si no hay, se devolverá un array vacío, lo cual es correcto.
-        res.status(200).json(result.rows);
-
-    } catch (err) {
-        console.error('Error obteniendo estudiantes por coordinador:', err);
-         // Asegúrate de que handleServerError esté definido o reemplázalo
-        res.status(500).json({ error: 'Error interno del servidor al obtener estudiantes por coordinador.' });
-    }
-};
 
 export {
     createStudentController,
