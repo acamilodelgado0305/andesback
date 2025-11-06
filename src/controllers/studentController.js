@@ -1,4 +1,5 @@
 import pool from '../database.js'; // Asegúrate de que esta ruta sea correcta
+import { uploadStudentDocumentToGCS, deleteStudentDocumentFromGCS } from '../services/gcsStudentDocuments.js';
 
 // Helper para manejar errores de forma consistente
 const handleServerError = (res, err, message) => {
@@ -13,7 +14,6 @@ const handleServerError = (res, err, message) => {
 // LÓGICA DE CREACIÓN (CREATE)
 // =======================================================
 const createStudentController = async (req, res) => {
-    // 1. Desestructuramos los datos del body, incluyendo 'programasIds'
     const {
         nombre,
         apellido,
@@ -27,7 +27,7 @@ const createStudentController = async (req, res) => {
         telefonoWhatsapp,
         simat,
         pagoMatricula,
-        programasIds, // <-- Leemos 'programasIds' (plural, en array)
+        programasIds,
         coordinador_id,
         modalidad_estudio,
         ultimo_curso_visto,
@@ -37,18 +37,20 @@ const createStudentController = async (req, res) => {
         tipoDocumentoAcudiente,
         telefonoAcudiente,
         direccionAcudiente,
+        // ✅ nuevo campo opcional
+        posibleGraduacion, // boolean esperado desde el front
     } = req.body;
 
-    // 2. Validación actualizada para verificar el array
     if (!nombre || !apellido || !email || !numeroDocumento || !programasIds || !Array.isArray(programasIds) || programasIds.length === 0) {
         return res.status(400).json({ error: 'Faltan campos obligatorios o el array de programas está vacío.' });
     }
 
-    // 3. Extraemos el primer (y único) ID del array
     const programa_id = programasIds[0];
 
     const estadoMatriculaBoolean = (pagoMatricula === true || pagoMatricula === 'Pagado');
     const simatBoolean = (simat === true || simat === 'Activo');
+    // ✅ Normalizamos el booleano (si no viene, será false por defecto)
+    const posibleGraduacionBoolean = posibleGraduacion === true;
 
     try {
         const studentInsertQuery = `
@@ -57,9 +59,17 @@ const createStudentController = async (req, res) => {
                 fecha_nacimiento, lugar_nacimiento, telefono_llamadas, telefono_whatsapp,
                 simat, estado_matricula, coordinador_id, modalidad_estudio,
                 ultimo_curso_visto, eps, rh, nombre_acudiente, tipo_documento_acudiente,
-                telefono_acudiente, direccion_acudiente, programa_id
+                telefono_acudiente, direccion_acudiente, programa_id,
+                posible_graduacion
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+            VALUES (
+                $1, $2, $3, $4, $5, $6,
+                $7, $8, $9, $10,
+                $11, $12, $13, $14,
+                $15, $16, $17, $18, $19,
+                $20, $21, $22,
+                $23
+            )
             RETURNING id;
         `;
 
@@ -71,21 +81,23 @@ const createStudentController = async (req, res) => {
                 simatBoolean, estadoMatriculaBoolean, coordinador_id, modalidad_estudio,
                 ultimo_curso_visto, eps, rh, nombreAcudiente, tipoDocumentoAcudiente,
                 telefonoAcudiente, direccionAcudiente,
-                programa_id // <-- Usamos la variable con el ID extraído
+                programa_id,
+                posibleGraduacionBoolean
             ]
         );
-        
+
         const newStudentId = studentResult.rows[0].id;
         res.status(201).json({ message: "Estudiante creado exitosamente", studentId: newStudentId });
 
     } catch (err) {
         console.error('Error al crear el estudiante:', err);
-        if (err.code === '23505') { 
+        if (err.code === '23505') {
             return res.status(409).json({ error: `Ya existe un estudiante con ese email o documento.` });
         }
         res.status(500).json({ error: 'Error interno del servidor.' });
     }
 };
+
 
 // =======================================================
 // LÓGICA DE OBTENCIÓN (READ) - Todos los estudiantes
@@ -172,22 +184,14 @@ const getStudentByIdController = async (req, res) => {
     }
 
     try {
-        // 1. QUERY CORREGIDA Y SIMPLIFICADA
-        // Usamos un simple LEFT JOIN para obtener los datos del programa.
         const query = `
             SELECT
-                s.*, -- Todos los campos del estudiante
-                
-                -- Campos del Coordinador
+                s.*,
                 u.id AS coordinador_id, 
                 u.name AS coordinador_nombre,
-                
-                -- Campos del Negocio (a través del coordinador)
                 b.id AS business_id, 
                 b.name AS business_name,
                 b.profile_picture_url AS business_profile_picture_url,
-
-                -- Campos del Programa (a través del JOIN directo)
                 i.id AS programa_id_actual, 
                 i.nombre AS nombre_programa, 
                 i.monto AS monto_programa
@@ -195,7 +199,6 @@ const getStudentByIdController = async (req, res) => {
                 students s
             LEFT JOIN users u ON s.coordinador_id = u.id
             LEFT JOIN businesses b ON u.business_id = b.id
-            -- Unimos directamente con inventario usando la columna programa_id del estudiante
             LEFT JOIN inventario i ON s.programa_id = i.id
             WHERE
                 s.id = $1;
@@ -209,56 +212,53 @@ const getStudentByIdController = async (req, res) => {
 
         const flatStudent = result.rows[0];
 
-        // 2. CÓDIGO DE MAPEO AJUSTADO
-        // Construimos el objeto de respuesta final anidando la información.
         const studentResponse = {
-            id: flatStudent.id,
-            nombre: flatStudent.nombre,
-            apellido: flatStudent.apellido,
-            email: flatStudent.email,
-            tipo_documento: flatStudent.tipo_documento,
-            numero_documento: flatStudent.numero_documento,
-            lugar_expedicion: flatStudent.lugar_expedicion,
-            fecha_nacimiento: flatStudent.fecha_nacimiento,
-            lugar_nacimiento: flatStudent.lugar_nacimiento,
-            telefono_llamadas: flatStudent.telefono_llamadas,
-            telefono_whatsapp: flatStudent.telefono_whatsapp,
-            telefono: flatStudent.telefono,
-            simat: flatStudent.simat,
-            estado_matricula: flatStudent.estado_matricula,
-            matricula: flatStudent.matricula,
-            modalidad_estudio: flatStudent.modalidad_estudio,
-            ultimo_curso_visto: flatStudent.ultimo_curso_visto,
-            fecha_inscripcion: flatStudent.fecha_inscripcion,
-            fecha_graduacion: flatStudent.fecha_graduacion,
-            activo: flatStudent.activo,
-            eps: flatStudent.eps,
-            rh: flatStudent.rh,
-            documento_url: flatStudent.documento,
-            created_at: flatStudent.created_at,
-            updated_at: flatStudent.updated_at,
-            acudiente: flatStudent.nombre_acudiente ? {
-                nombre: flatStudent.nombre_acudiente,
-                tipo_documento: flatStudent.tipo_documento_acudiente,
-                telefono: flatStudent.telefono_acudiente,
-                direccion: flatStudent.direccion_acudiente
-            } : null,
-            coordinador: flatStudent.coordinador_id ? {
-                id: flatStudent.coordinador_id,
-                nombre: flatStudent.coordinador_nombre
-            } : null,
-            business: flatStudent.business_id ? {
-                id: flatStudent.business_id,
-                name: flatStudent.business_name,
-                profilePictureUrl: flatStudent.business_profile_picture_url
-            } : null,
-            // Creamos un objeto para el programa en lugar de un array
-            programa_asociado: flatStudent.programa_id_actual ? {
-                programa_id: flatStudent.programa_id_actual,
-                nombre_programa: flatStudent.nombre_programa,
-                monto_programa: flatStudent.monto_programa
-            } : null
-        };
+    id: flatStudent.id,
+    nombre: flatStudent.nombre,
+    apellido: flatStudent.apellido,
+    email: flatStudent.email,
+    tipo_documento: flatStudent.tipo_documento,
+    numero_documento: flatStudent.numero_documento,
+    lugar_expedicion: flatStudent.lugar_expedicion,
+    fecha_nacimiento: flatStudent.fecha_nacimiento,
+    lugar_nacimiento: flatStudent.lugar_nacimiento,
+    telefono_llamadas: flatStudent.telefono_llamadas,
+    telefono_whatsapp: flatStudent.telefono_whatsapp,
+    telefono: flatStudent.telefono,
+    numero_documento: flatStudent.numero_documento,
+    simat: flatStudent.simat,
+    estado_matricula: flatStudent.estado_matricula,
+    matricula: flatStudent.matricula,
+    modalidad_estudio: flatStudent.modalidad_estudio,
+    ultimo_curso_visto: flatStudent.ultimo_curso_visto,
+    fecha_inscripcion: flatStudent.fecha_inscripcion,
+    fecha_graduacion: flatStudent.fecha_graduacion,
+    activo: flatStudent.activo,
+    eps: flatStudent.eps,
+    rh: flatStudent.rh,
+    documento_url: flatStudent.documento,
+    created_at: flatStudent.created_at,
+    updated_at: flatStudent.updated_at,
+    // ✅ nuevo campo expuesto
+    posible_graduacion: flatStudent.posible_graduacion,
+    acudiente: flatStudent.nombre_acudiente ? {
+        nombre: flatStudent.nombre_acudiente,
+        tipo_documento: flatStudent.tipo_documento_acudiente,
+        telefono: flatStudent.telefono_acudiente,
+        direccion: flatStudent.direccion_acudiente
+    } : null,
+    coordinador: flatStudent.coordinador_id ? {
+        id: flatStudent.coordinador_id,
+        nombre: flatStudent.coordinador_nombre
+    } : null,
+    business: flatStudent.business_id ? {
+        id: flatStudent.business_id,
+        name: flatStudent.business_name,
+        profilePictureUrl: flatStudent.business_profile_picture_url
+    } : null,
+    programas_asociados: flatStudent.programas_asociados
+};
+
 
         res.status(200).json(studentResponse);
 
@@ -267,6 +267,7 @@ const getStudentByIdController = async (req, res) => {
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 };
+
 
 
 /**
@@ -287,41 +288,43 @@ const getStudentByDocumentController = async (req, res) => {
         // 3. Utilizamos tu query original, pero modificamos el WHERE.
         //    Buscamos por `s.numero_documento` en lugar de `s.id`.
         const query = `
-            SELECT
-                s.id, s.nombre, s.apellido, s.email, s.tipo_documento,
-                s.numero_documento, s.lugar_expedicion, s.fecha_nacimiento,
-                s.lugar_nacimiento, s.telefono_llamadas, s.telefono_whatsapp,
-                s.simat, s.estado_matricula, s.modalidad_estudio,
-                s.ultimo_curso_visto, s.fecha_inscripcion, s.activo,
-                s.telefono, s.numero_documento, s.fecha_graduacion, 
-                s.matricula, s.eps, s.rh, s.documento, 
-                s.created_at, s.updated_at,
-                s.nombre_acudiente, s.tipo_documento_acudiente,
-                s.telefono_acudiente, s.direccion_acudiente,
-                u.id AS coordinador_id, u.name AS coordinador_nombre,
-                b.id AS business_id, b.name AS business_name,
-                b.profile_picture_url AS business_profile_picture_url,
-                COALESCE(
-                    json_agg(
-                        json_build_object(
-                            'programa_id', i.id,
-                            'nombre_programa', i.nombre,
-                            'monto_programa', i.monto
-                        )
-                    ) FILTER (WHERE i.id IS NOT NULL),
-                    '[]'::json
-                ) AS programas_asociados
-            FROM
-                students s
-            LEFT JOIN users u ON s.coordinador_id = u.id
-            LEFT JOIN businesses b ON u.business_id = b.id
-            LEFT JOIN estudiante_programas ep ON s.id = ep.estudiante_id
-            LEFT JOIN inventario i ON ep.programa_id = i.id
-            WHERE
-                s.numero_documento = $1  -- ¡Este es el cambio clave!
-            GROUP BY
-                s.id, u.id, b.id;
-        `;
+    SELECT
+        s.id, s.nombre, s.apellido, s.email, s.tipo_documento,
+        s.numero_documento, s.lugar_expedicion, s.fecha_nacimiento,
+        s.lugar_nacimiento, s.telefono_llamadas, s.telefono_whatsapp,
+        s.simat, s.estado_matricula, s.modalidad_estudio,
+        s.ultimo_curso_visto, s.fecha_inscripcion, s.activo,
+        s.telefono, s.numero_documento, s.fecha_graduacion, 
+        s.matricula, s.eps, s.rh, s.documento, 
+        s.created_at, s.updated_at,
+        s.nombre_acudiente, s.tipo_documento_acudiente,
+        s.telefono_acudiente, s.direccion_acudiente,
+        -- ✅ nuevo campo
+        s.posible_graduacion,
+        u.id AS coordinador_id, u.name AS coordinador_nombre,
+        b.id AS business_id, b.name AS business_name,
+        b.profile_picture_url AS business_profile_picture_url,
+        COALESCE(
+            json_agg(
+                json_build_object(
+                    'programa_id', i.id,
+                    'nombre_programa', i.nombre,
+                    'monto_programa', i.monto
+                )
+            ) FILTER (WHERE i.id IS NOT NULL),
+            '[]'::json
+        ) AS programas_asociados
+    FROM
+        students s
+    LEFT JOIN users u ON s.coordinador_id = u.id
+    LEFT JOIN businesses b ON u.business_id = b.id
+    LEFT JOIN estudiante_programas ep ON s.id = ep.estudiante_id
+    LEFT JOIN inventario i ON ep.programa_id = i.id
+    WHERE
+        s.numero_documento = $1
+    GROUP BY
+        s.id, u.id, b.id;
+`;
 
         const result = await pool.query(query, [numero_documento]);
 
@@ -332,50 +335,53 @@ const getStudentByDocumentController = async (req, res) => {
         const flatStudent = result.rows[0];
 
         // 4. Mantenemos la misma estructura de respuesta para consistencia en la API.
-        const studentResponse = {
-            id: flatStudent.id,
-            nombre: flatStudent.nombre,
-            apellido: flatStudent.apellido,
-            email: flatStudent.email,
-            tipo_documento: flatStudent.tipo_documento,
-            numero_documento: flatStudent.numero_documento,
-            lugar_expedicion: flatStudent.lugar_expedicion,
-            fecha_nacimiento: flatStudent.fecha_nacimiento,
-            lugar_nacimiento: flatStudent.lugar_nacimiento,
-            telefono_llamadas: flatStudent.telefono_llamadas,
-            telefono_whatsapp: flatStudent.telefono_whatsapp,
-            telefono: flatStudent.telefono,
-            numero_documento: flatStudent.numero_documento,
-            simat: flatStudent.simat,
-            estado_matricula: flatStudent.estado_matricula,
-            matricula: flatStudent.matricula,
-            modalidad_estudio: flatStudent.modalidad_estudio,
-            ultimo_curso_visto: flatStudent.ultimo_curso_visto,
-            fecha_inscripcion: flatStudent.fecha_inscripcion,
-            fecha_graduacion: flatStudent.fecha_graduacion,
-            activo: flatStudent.activo,
-            eps: flatStudent.eps,
-            rh: flatStudent.rh,
-            documento_url: flatStudent.documento,
-            created_at: flatStudent.created_at,
-            updated_at: flatStudent.updated_at,
-            acudiente: flatStudent.nombre_acudiente ? {
-                nombre: flatStudent.nombre_acudiente,
-                tipo_documento: flatStudent.tipo_documento_acudiente,
-                telefono: flatStudent.telefono_acudiente,
-                direccion: flatStudent.direccion_acudiente
-            } : null,
-            coordinador: flatStudent.coordinador_id ? {
-                id: flatStudent.coordinador_id,
-                nombre: flatStudent.coordinador_nombre
-            } : null,
-            business: flatStudent.business_id ? {
-                id: flatStudent.business_id,
-                name: flatStudent.business_name,
-                profilePictureUrl: flatStudent.business_profile_picture_url
-            } : null,
-            programas_asociados: flatStudent.programas_asociados
-        };
+const studentResponse = {
+    id: flatStudent.id,
+    nombre: flatStudent.nombre,
+    apellido: flatStudent.apellido,
+    email: flatStudent.email,
+    tipo_documento: flatStudent.tipo_documento,
+    numero_documento: flatStudent.numero_documento,
+    lugar_expedicion: flatStudent.lugar_expedicion,
+    fecha_nacimiento: flatStudent.fecha_nacimiento,
+    lugar_nacimiento: flatStudent.lugar_nacimiento,
+    telefono_llamadas: flatStudent.telefono_llamadas,
+    telefono_whatsapp: flatStudent.telefono_whatsapp,
+    telefono: flatStudent.telefono,
+    numero_documento: flatStudent.numero_documento,
+    simat: flatStudent.simat,
+    estado_matricula: flatStudent.estado_matricula,
+    matricula: flatStudent.matricula,
+    modalidad_estudio: flatStudent.modalidad_estudio,
+    ultimo_curso_visto: flatStudent.ultimo_curso_visto,
+    fecha_inscripcion: flatStudent.fecha_inscripcion,
+    fecha_graduacion: flatStudent.fecha_graduacion,
+    activo: flatStudent.activo,
+    eps: flatStudent.eps,
+    rh: flatStudent.rh,
+    documento_url: flatStudent.documento,
+    created_at: flatStudent.created_at,
+    updated_at: flatStudent.updated_at,
+    // ✅ nuevo campo expuesto
+    posible_graduacion: flatStudent.posible_graduacion,
+    acudiente: flatStudent.nombre_acudiente ? {
+        nombre: flatStudent.nombre_acudiente,
+        tipo_documento: flatStudent.tipo_documento_acudiente,
+        telefono: flatStudent.telefono_acudiente,
+        direccion: flatStudent.direccion_acudiente
+    } : null,
+    coordinador: flatStudent.coordinador_id ? {
+        id: flatStudent.coordinador_id,
+        nombre: flatStudent.coordinador_nombre
+    } : null,
+    business: flatStudent.business_id ? {
+        id: flatStudent.business_id,
+        name: flatStudent.business_name,
+        profilePictureUrl: flatStudent.business_profile_picture_url
+    } : null,
+    programas_asociados: flatStudent.programas_asociados
+};
+
 
         res.status(200).json(studentResponse);
 
@@ -667,13 +673,13 @@ const getStudentsByProgramTypeController = async (req, res) => {
             ORDER BY
                 s.apellido, s.nombre;
         `;
-        
+
         const values = [
             programTypeFilter,
             activo,
             modalidad
         ];
-        
+
         const result = await pool.query(query, values);
         res.status(200).json(result.rows);
 
@@ -682,6 +688,206 @@ const getStudentsByProgramTypeController = async (req, res) => {
         res.status(500).json({ error: 'Error interno del servidor.' });
     }
 };
+
+export const updatePosibleGraduacionStudentController = async (req, res) => {
+    const { id } = req.params;
+    const { posible_graduacion } = req.body; // boolean
+
+    if (!id || isNaN(id)) {
+        return res.status(400).json({ error: 'ID de estudiante inválido.' });
+    }
+
+    if (typeof posible_graduacion !== 'boolean') {
+        return res.status(400).json({ error: 'El campo posible_graduacion debe ser boolean (true/false).' });
+    }
+
+    try {
+        const result = await pool.query(
+            `
+            UPDATE students
+            SET posible_graduacion = $1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = $2
+            RETURNING *;
+            `,
+            [posible_graduacion, id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Estudiante no encontrado.' });
+        }
+
+        res.status(200).json({
+            message: 'Estado de posible graduación actualizado correctamente.',
+            student: result.rows[0]
+        });
+    } catch (err) {
+        handleServerError(res, err, 'Error actualizando estado de posible graduación del estudiante.');
+    }
+};
+
+export const uploadStudentDocumentController = async (req, res) => {
+  const { id } = req.params;
+
+  if (!id || isNaN(id)) {
+    return res
+      .status(400)
+      .json({ error: "ID de estudiante inválido o no proporcionado." });
+  }
+
+  if (!req.file) {
+    return res.status(400).json({ error: "No se envió ningún archivo." });
+  }
+
+  try {
+    const { buffer, originalname, mimetype } = req.file;
+
+    const { publicUrl } = await uploadStudentDocumentToGCS(buffer, {
+      filename: originalname,
+      mimetype,
+      studentId: id,
+    });
+
+    const updateQuery = `
+      UPDATE students
+      SET documento = $1,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $2
+      RETURNING *;
+    `;
+
+    const result = await pool.query(updateQuery, [publicUrl, id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Estudiante no encontrado." });
+    }
+
+    const updatedStudent = result.rows[0];
+
+    return res.status(200).json({
+      message: "Documento subido y asociado al estudiante correctamente.",
+      documento_url: publicUrl,
+      student: updatedStudent,
+    });
+  } catch (err) {
+    handleServerError(
+      res,
+      err,
+      "Error interno del servidor al subir el documento del estudiante."
+    );
+  }
+};
+
+export const getStudentDocumentsController = async (req, res) => {
+  const { id } = req.params;
+
+  if (!id || isNaN(id)) {
+    return res
+      .status(400)
+      .json({ error: "ID de estudiante inválido o no proporcionado." });
+  }
+
+  try {
+    const query = `
+      SELECT documento
+      FROM students
+      WHERE id = $1
+    `;
+    const result = await pool.query(query, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Estudiante no encontrado." });
+    }
+
+    const docUrl = result.rows[0].documento;
+    if (!docUrl) {
+      return res.status(200).json([]); // sin documentos
+    }
+
+    const document = {
+      id: id,
+      url: docUrl,
+      nombre: docUrl.split("/").pop(),
+      mimetype: docUrl.endsWith(".pdf") ? "application/pdf" : "unknown",
+    };
+
+    return res.status(200).json([document]);
+  } catch (err) {
+    console.error("Error al obtener documentos:", err);
+    return res
+      .status(500)
+      .json({ error: "Error interno del servidor al obtener documentos." });
+  }
+};
+
+
+export const deleteStudentDocumentController = async (req, res) => {
+  const { studentId } = req.params;
+
+  if (!studentId || isNaN(studentId)) {
+    return res
+      .status(400)
+      .json({ error: "ID de estudiante inválido o no proporcionado." });
+  }
+
+  try {
+    // 1. Obtener el estudiante y su documento
+    const selectQuery = `
+      SELECT id, documento
+      FROM students
+      WHERE id = $1
+    `;
+    const result = await pool.query(selectQuery, [studentId]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Estudiante no encontrado." });
+    }
+
+    const student = result.rows[0];
+
+    if (!student.documento) {
+      // No tiene documento asociado
+      return res
+        .status(404)
+        .json({ error: "El estudiante no tiene documento asociado." });
+    }
+
+    const fileUrl = student.documento;
+
+    // 2. Eliminar de Google Cloud Storage
+    try {
+      await deleteStudentDocumentFromGCS(fileUrl);
+    } catch (err) {
+      console.error("[GCS] Error al eliminar el archivo:", err.message);
+      // Podrías decidir si aquí haces return 500 o sigues y al menos limpias la BD
+      return res.status(500).json({
+        error:
+          "Error al eliminar el archivo del almacenamiento. Inténtalo nuevamente.",
+      });
+    }
+
+    // 3. Limpiar la columna documento en la tabla students
+    const updateQuery = `
+      UPDATE students
+      SET documento = NULL,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+    `;
+    await pool.query(updateQuery, [studentId]);
+
+    return res
+      .status(200)
+      .json({ message: "Documento eliminado correctamente." });
+  } catch (err) {
+    console.error("Error al eliminar documento:", err);
+    return res.status(500).json({
+      error: "Error interno del servidor al eliminar el documento.",
+    });
+  }
+};
+
+
+
 
 
 

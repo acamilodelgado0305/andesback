@@ -10,13 +10,19 @@ import {
   getStudentsByProgramTypeController, // Reemplaza getStudentsByBachilleratoController y getStudentsByTecnicosController
   getStudentsByProgramaIdController,  // Nuevo para filtrar por ID de programa
   getStudentsByCoordinatorIdController,
-  getStudentByDocumentController
+  getStudentByDocumentController,
+  updatePosibleGraduacionStudentController,
+  uploadStudentDocumentController,
+  getStudentDocumentsController,
+  deleteStudentDocumentController
 } from '../controllers/studentController.js';
 
 import { getGradesByStudentIdController, getGradesByStudentDocumentController } from '../controllers/GradesController.js';
 
 import { uploadStudentsController } from "../controllers/uploadStudentsController.js";
 import upload from "../uploadMiddleware.js";
+
+import uploadStudentDocument from '../middlewares/uploadStudentDocumentMiddleware.js';
 
 const router = express.Router();
 
@@ -76,6 +82,23 @@ router.get('/grades/students/:id', getGradesByStudentIdController);
 
 // GET: Obtener calificaciones de un estudiante por su número de documento
 router.get('/grades/student/:numero_documento', getGradesByStudentDocumentController);
+
+// PATCH /students/:id/posible-graduacion
+router.patch('/students/:id/posible-graduacion', updatePosibleGraduacionStudentController);
+
+router.post(
+  "/students/:id/document",
+  uploadStudentDocument.single("document"),
+  uploadStudentDocumentController
+);
+
+// routes/studentRoutes.js
+router.get("/students/:id/documents", getStudentDocumentsController);
+// routes/studentRoutes.js
+router.delete("/students/:studentId/documents/:documentId", deleteStudentDocumentController);
+
+
+
 
 
 export default router;
