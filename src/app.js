@@ -10,7 +10,6 @@ import subjectRouter from './routes/subjectRoutes.js'
 import GradesRouter from './routes/GradesRouter.js'
 import CertificadosRouter from "./routes/certificadoRoutes.js"
 import adminrRoutes from './routes/admin/adminRoutes.js'
-import verifyToken from './authMiddleware.js';
 import docentesRouter from './routes/docentesRouter.js'
 import materiasRouter from './routes/materiasRouter.js'
 import dotenv from "dotenv";
