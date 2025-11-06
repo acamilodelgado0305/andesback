@@ -18,7 +18,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 7001;
+const PORT = process.env.PORT || 3002 ;
 
 app.set('port', PORT);
 
@@ -34,6 +34,10 @@ app.use(express.json());
 app.use((err, req, res, next) => {
     console.error('Error:', err.message);
     res.status(500).send('Error interno del servidor'); 
+});
+
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`✅ Servidor escuchando en el puerto ${PORT}`);
 });
 
 // Rutas públicas (sin protección)
