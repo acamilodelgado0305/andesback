@@ -36,9 +36,6 @@ app.use((err, req, res, next) => {
     res.status(500).send('Error interno del servidor'); 
 });
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`✅ Servidor escuchando en el puerto ${PORT}`);
-});
 
 // Rutas públicas (sin protección)
 app.use('/api', authRouter);
