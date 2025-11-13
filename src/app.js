@@ -12,7 +12,11 @@ import CertificadosRouter from "./routes/certificadoRoutes.js"
 import adminrRoutes from './routes/admin/adminRoutes.js'
 import docentesRouter from './routes/docentesRouter.js'
 import materiasRouter from './routes/materiasRouter.js'
+import evaluacionesRouter from "./routes/evaluacionesRouter.js"
+import programasRouter from "./routes/programasRoutes.js"
+import studentAuthRouter from "./routes/studentAuthRoutes.js"
 import dotenv from "dotenv";
+
 
 dotenv.config();
 
@@ -50,5 +54,8 @@ app.use('/api',  CertificadosRouter);
 app.use('/api',  adminrRoutes);
 app.use('/api',  docentesRouter);
 app.use('/api',  materiasRouter);
+app.use('/api', evaluacionesRouter);
+app.use('/api', programasRouter);
+app.use('/api/student-portal', studentAuthRouter);
 
 export default app;
