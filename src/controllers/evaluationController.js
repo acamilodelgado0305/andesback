@@ -764,7 +764,8 @@ export const getEvaluacionesDeEstudiante = async (req, res) => {
         e.descripcion,
         e.fecha_inicio,
         e.fecha_fin,
-        e.tiempo_limite_min
+        e.tiempo_limite_min,
+        e.intentos_max              -- 🔹 AQUÍ devolvemos los intentos totales
       FROM public.evaluacion_asignaciones ea
       JOIN public.evaluaciones e
         ON e.id = ea.evaluacion_id
@@ -781,14 +782,16 @@ export const getEvaluacionesDeEstudiante = async (req, res) => {
       asignaciones: rows,
     });
   } catch (error) {
-    console.error('Error en getEvaluacionesDeEstudiante:', error);
+    console.error("Error en getEvaluacionesDeEstudiante:", error);
     return res.status(500).json({
       ok: false,
-      message: 'Error al obtener evaluaciones del estudiante',
+      message: "Error al obtener evaluaciones del estudiante",
       error: error.message,
     });
   }
 };
+
+
 
 /**
  * Obtener detalle de una asignación para que el estudiante responda
@@ -804,7 +807,8 @@ export const getAsignacionDetalleParaResponder = async (req, res) => {
         e.descripcion,
         e.tiempo_limite_min,
         e.fecha_inicio,
-        e.fecha_fin
+        e.fecha_fin,
+        e.intentos_max           -- 🔹 NUEVO: devolvemos intentos máximos
       FROM public.evaluacion_asignaciones ea
       JOIN public.evaluaciones e
         ON e.id = ea.evaluacion_id
@@ -815,7 +819,7 @@ export const getAsignacionDetalleParaResponder = async (req, res) => {
     if (asignacionResult.rows.length === 0) {
       return res.status(404).json({
         ok: false,
-        message: 'Asignación no encontrada',
+        message: "Asignación no encontrada",
       });
     }
 
@@ -882,18 +886,20 @@ export const getAsignacionDetalleParaResponder = async (req, res) => {
         tiempo_limite_min: asignacion.tiempo_limite_min,
         fecha_inicio: asignacion.fecha_inicio,
         fecha_fin: asignacion.fecha_fin,
+        intentos_max: asignacion.intentos_max,     // 🔹 AQUÍ va para el front
       },
       preguntas,
     });
   } catch (error) {
-    console.error('Error en getAsignacionDetalleParaResponder:', error);
+    console.error("Error en getAsignacionDetalleParaResponder:", error);
     return res.status(500).json({
       ok: false,
-      message: 'Error al obtener detalle de la asignación',
+      message: "Error al obtener detalle de la asignación",
       error: error.message,
     });
   }
 };
+
 
 /**
  * Enviar respuestas de una asignación (auto-calificar + actualizar grades)
