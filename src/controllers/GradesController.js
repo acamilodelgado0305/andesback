@@ -90,77 +90,99 @@ const getGradesByStudentIdController = async (req, res) => {
 
 
 const getGradesByStudentDocumentController = async (req, res) => {
-    const { numero_documento } = req.params;
+  const { numero_documento } = req.params;
 
-    if (!numero_documento || String(numero_documento).trim() === '') {
-        return res.status(400).json({ error: 'El número de documento es requerido.' });
+  if (!numero_documento || String(numero_documento).trim() === "") {
+    return res
+      .status(400)
+      .json({ error: "El número de documento es requerido." });
+  }
+
+  try {
+    const docTrim = String(numero_documento).trim();
+
+    // ✅ CONSULTA 1 AJUSTADA:
+    // - Ya NO usa inventario ni s.programa_id
+    // - Programa(s) salen de estudiante_programas + programas
+    const studentQuery = `
+      SELECT 
+        s.id, 
+        s.nombre, 
+        s.apellido, 
+        s.numero_documento, 
+        u.name AS coordinador,
+        -- Si tiene varios programas, concatenamos sus nombres en una sola cadena
+        COALESCE(
+          (
+            SELECT string_agg(p.nombre, ', ' ORDER BY p.nombre)
+            FROM estudiante_programas ep
+            JOIN programas p ON ep.programa_id = p.id
+            WHERE ep.estudiante_id = s.id
+          ),
+          'No asignado'
+        ) AS programa_nombre
+      FROM 
+        students s 
+      LEFT JOIN 
+        users u ON s.coordinador_id = u.id
+      WHERE 
+        TRIM(CAST(s.numero_documento AS TEXT)) = TRIM($1)
+      LIMIT 1;
+    `;
+
+    const studentResult = await pool.query(studentQuery, [docTrim]);
+
+    if (studentResult.rows.length === 0) {
+      return res.status(404).json({
+        error: "Estudiante no encontrado con el número de documento proporcionado.",
+      });
     }
 
-    try {
-        // ✅ CONSULTA 1: Esta ya estaba correcta. Obtiene el nombre del programa con un JOIN.
-        const studentQuery = `
-            SELECT 
-                s.id, 
-                s.nombre, 
-                s.apellido, 
-                s.numero_documento, 
-                u.name AS coordinador,
-                i.nombre AS programa_nombre
-            FROM 
-                students s 
-            LEFT JOIN 
-                users u ON s.coordinador_id = u.id
-            LEFT JOIN
-                inventario i ON s.programa_id = i.id
-            WHERE 
-                s.numero_documento = $1;
-        `;
-        const studentResult = await pool.query(studentQuery, [numero_documento]);
+    const studentDataFromDB = studentResult.rows[0];
+    const studentIdForPDF = studentDataFromDB.id;
 
-        if (studentResult.rows.length === 0) {
-            return res.status(404).json({ error: 'Estudiante no encontrado con el número de documento proporcionado.' });
-        }
+    // Mantienes el mismo shape que ya usabas
+    const studentInfoForPDF = {
+      nombre: studentDataFromDB.nombre,
+      apellido: studentDataFromDB.apellido,
+      programa_nombre: studentDataFromDB.programa_nombre || "No asignado",
+      coordinador: studentDataFromDB.coordinador || "No asignado",
+      documento: studentDataFromDB.numero_documento,
+    };
 
-        const studentDataFromDB = studentResult.rows[0];
-        const studentIdForPDF = studentDataFromDB.id;
+    // ✅ CONSULTA 2: tu lógica de grades se mantiene igual
+    const gradesQuery = `
+      SELECT  
+        g.materia,  
+        g.nota 
+      FROM  
+        grades g 
+      JOIN  
+        materias m ON LOWER(TRIM(g.materia)) = LOWER(TRIM(m.nombre))
+      WHERE  
+        g.student_id = $1 AND m.activa = true 
+      ORDER BY  
+        g.materia ASC;
+    `;
+    const gradesResult = await pool.query(gradesQuery, [studentIdForPDF]);
+    const gradesForPDF = gradesResult.rows;
 
-        // La lógica de JS para procesar el resultado también estaba bien.
-        const studentInfoForPDF = {
-            nombre: studentDataFromDB.nombre,
-            apellido: studentDataFromDB.apellido,
-            programa_nombre: studentDataFromDB.programa_nombre || 'No asignado',
-            coordinador: studentDataFromDB.coordinador || 'No asignado',
-            documento: studentDataFromDB.numero_documento
-        };
-
-        // ✅ CONSULTA 2 CORREGIDA: Se une por el campo de texto 'nombre', pero de forma segura.
-        const gradesQuery = `
-            SELECT  
-                g.materia,  
-                g.nota 
-            FROM  
-                grades g 
-            JOIN  
-                materias m ON LOWER(TRIM(g.materia)) = LOWER(TRIM(m.nombre))
-            WHERE  
-                g.student_id = $1 AND m.activa = true 
-            ORDER BY  
-                g.materia ASC;
-        `;
-        const gradesResult = await pool.query(gradesQuery, [studentIdForPDF]);
-        const gradesForPDF = gradesResult.rows;
-
-        res.status(200).json({
-            student: studentInfoForPDF,
-            grades: gradesForPDF,
-            studentId: studentIdForPDF
-        });
-
-    } catch (err) {
-        console.error(`Error obteniendo datos para el reporte del estudiante con documento ${numero_documento}:`, err);
-        res.status(500).json({ error: 'Error interno del servidor al obtener los datos del reporte.' });
-    }
+    return res.status(200).json({
+      student: studentInfoForPDF,
+      grades: gradesForPDF,
+      studentId: studentIdForPDF,
+    });
+  } catch (err) {
+    console.error(
+      `Error obteniendo datos para el reporte del estudiante con documento ${numero_documento}:`,
+      err
+    );
+    return res.status(500).json({
+      error: "Error interno del servidor al obtener los datos del reporte.",
+    });
+  }
 };
+
 
 
 
