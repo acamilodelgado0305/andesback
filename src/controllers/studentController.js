@@ -13,260 +13,433 @@ const handleServerError = (res, err, message) => {
 // =======================================================
 // LÓGICA DE CREACIÓN (CREATE)
 // =======================================================
-const createStudentController = async (req, res) => {
-    const {
+export const createStudentController = async (req, res) => {
+  const {
+    nombre,
+    apellido,
+    email,
+    tipoDocumento,
+    numeroDocumento,
+    lugarExpedicion,
+    fechaNacimiento,
+    lugarNacimiento,
+    telefonoLlamadas,
+    telefonoWhatsapp,
+    simat,
+    pagoMatricula,
+    programasIds,          // 👉 IDs de la tabla PROGRAMAS (array)
+    coordinador_id,
+    modalidad_estudio,
+    ultimo_curso_visto,
+    eps,
+    rh,
+    nombreAcudiente,
+    tipoDocumentoAcudiente,
+    telefonoAcudiente,
+    direccionAcudiente,
+    posibleGraduacion,     // boolean opcional
+  } = req.body;
+
+  // ✅ Sanitizar programasIds: a enteros válidos y únicos
+  let sanitizedProgramIds = [];
+  if (Array.isArray(programasIds)) {
+    sanitizedProgramIds = [
+      ...new Set(
+        programasIds
+          .map((p) => parseInt(p, 10))
+          .filter((p) => !isNaN(p))
+      ),
+    ];
+  }
+
+  // ✅ Validación de campos obligatorios
+  if (
+    !nombre ||
+    !apellido ||
+    !email ||
+    !numeroDocumento ||
+    !Array.isArray(programasIds) ||
+    sanitizedProgramIds.length === 0
+  ) {
+    return res.status(400).json({
+      error:
+        "Faltan campos obligatorios o el array de programas está vacío o es inválido.",
+    });
+  }
+
+  const estadoMatriculaBoolean =
+    pagoMatricula === true || pagoMatricula === "Pagado";
+  const simatBoolean = simat === true || simat === "Activo";
+  const posibleGraduacionBoolean = posibleGraduacion === true;
+
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+
+    const studentInsertQuery = `
+      INSERT INTO students (
         nombre,
         apellido,
         email,
-        tipoDocumento,
-        numeroDocumento,
-        lugarExpedicion,
-        fechaNacimiento,
-        lugarNacimiento,
-        telefonoLlamadas,
-        telefonoWhatsapp,
+        tipo_documento,
+        numero_documento,
+        lugar_expedicion,
+        fecha_nacimiento,
+        lugar_nacimiento,
+        telefono_llamadas,
+        telefono_whatsapp,
         simat,
-        pagoMatricula,
-        programasIds,
+        estado_matricula,
         coordinador_id,
         modalidad_estudio,
         ultimo_curso_visto,
         eps,
         rh,
-        nombreAcudiente,
-        tipoDocumentoAcudiente,
-        telefonoAcudiente,
-        direccionAcudiente,
-        // ✅ nuevo campo opcional
-        posibleGraduacion, // boolean esperado desde el front
-    } = req.body;
+        nombre_acudiente,
+        tipo_documento_acudiente,
+        telefono_acudiente,
+        direccion_acudiente,
+        posible_graduacion
+      )
+      VALUES (
+        $1, $2, $3, $4, $5, $6,
+        $7, $8, $9, $10,
+        $11, $12, $13, $14,
+        $15, $16, $17, $18, $19,
+        $20, $21, $22
+      )
+      RETURNING id;
+    `;
 
-    if (!nombre || !apellido || !email || !numeroDocumento || !programasIds || !Array.isArray(programasIds) || programasIds.length === 0) {
-        return res.status(400).json({ error: 'Faltan campos obligatorios o el array de programas está vacío.' });
+    const studentResult = await client.query(studentInsertQuery, [
+      nombre,
+      apellido,
+      email,
+      tipoDocumento,
+      numeroDocumento,
+      lugarExpedicion,
+      fechaNacimiento,      // se asume ISO string o date compatible
+      lugarNacimiento,
+      telefonoLlamadas,
+      telefonoWhatsapp,
+      simatBoolean,
+      estadoMatriculaBoolean,
+      coordinador_id || null,
+      modalidad_estudio || null,
+      ultimo_curso_visto || null,
+      eps || null,
+      rh || null,
+      nombreAcudiente || null,
+      tipoDocumentoAcudiente || null,
+      telefonoAcudiente || null,
+      direccionAcudiente || null,
+      posibleGraduacionBoolean,
+    ]);
+
+    const newStudentId = studentResult.rows[0].id;
+
+    // 👉 Asociamos TODOS los programas del array limpio
+    if (sanitizedProgramIds.length > 0) {
+      const valuesClauses = sanitizedProgramIds
+        .map((_, index) => `($1, $${index + 2})`)
+        .join(", ");
+
+      const programInsertValues = [newStudentId, ...sanitizedProgramIds];
+
+      const programAssignQuery = `
+        INSERT INTO estudiante_programas (estudiante_id, programa_id)
+        VALUES ${valuesClauses};
+      `;
+
+      await client.query(programAssignQuery, programInsertValues);
     }
 
-    const programa_id = programasIds[0];
+    await client.query("COMMIT");
 
-    const estadoMatriculaBoolean = (pagoMatricula === true || pagoMatricula === 'Pagado');
-    const simatBoolean = (simat === true || simat === 'Activo');
-    // ✅ Normalizamos el booleano (si no viene, será false por defecto)
-    const posibleGraduacionBoolean = posibleGraduacion === true;
+    return res.status(201).json({
+      message: "Estudiante creado exitosamente",
+      studentId: newStudentId,
+    });
+  } catch (err) {
+    if (client) await client.query("ROLLBACK");
 
-    try {
-        const studentInsertQuery = `
-            INSERT INTO students (
-                nombre, apellido, email, tipo_documento, numero_documento, lugar_expedicion,
-                fecha_nacimiento, lugar_nacimiento, telefono_llamadas, telefono_whatsapp,
-                simat, estado_matricula, coordinador_id, modalidad_estudio,
-                ultimo_curso_visto, eps, rh, nombre_acudiente, tipo_documento_acudiente,
-                telefono_acudiente, direccion_acudiente, programa_id,
-                posible_graduacion
-            )
-            VALUES (
-                $1, $2, $3, $4, $5, $6,
-                $7, $8, $9, $10,
-                $11, $12, $13, $14,
-                $15, $16, $17, $18, $19,
-                $20, $21, $22,
-                $23
-            )
-            RETURNING id;
-        `;
-
-        const studentResult = await pool.query(
-            studentInsertQuery,
-            [
-                nombre, apellido, email, tipoDocumento, numeroDocumento, lugarExpedicion,
-                fechaNacimiento, lugarNacimiento, telefonoLlamadas, telefonoWhatsapp,
-                simatBoolean, estadoMatriculaBoolean, coordinador_id, modalidad_estudio,
-                ultimo_curso_visto, eps, rh, nombreAcudiente, tipoDocumentoAcudiente,
-                telefonoAcudiente, direccionAcudiente,
-                programa_id,
-                posibleGraduacionBoolean
-            ]
-        );
-
-        const newStudentId = studentResult.rows[0].id;
-        res.status(201).json({ message: "Estudiante creado exitosamente", studentId: newStudentId });
-
-    } catch (err) {
-        console.error('Error al crear el estudiante:', err);
-        if (err.code === '23505') {
-            return res.status(409).json({ error: `Ya existe un estudiante con ese email o documento.` });
-        }
-        res.status(500).json({ error: 'Error interno del servidor.' });
+    console.error("Error al crear el estudiante:", err);
+    if (err.code === "23505") {
+      // Único en email o documento
+      return res.status(409).json({
+        error: "Ya existe un estudiante con ese email o documento.",
+      });
     }
+
+    return res
+      .status(500)
+      .json({ error: "Error interno del servidor al crear el estudiante." });
+  } finally {
+    if (client) client.release();
+  }
 };
+
+
 
 
 // =======================================================
 // LÓGICA DE OBTENCIÓN (READ) - Todos los estudiantes
 // =======================================================
-const getStudentsController = async (req, res) => {
-    try {
-        // QUERY CORREGIDA: Un JOIN simple que refleja la relación actual.
-        const query = `
-            SELECT
-                s.*,
-                u.name AS coordinador_nombre,
+export const getStudentsController = async (req, res) => {
+  try {
+    const query = `
+      SELECT
+        s.*,
+        u.name AS coordinador_nombre,
 
-                -- Obtenemos los detalles del programa asociado directamente
-                i.id AS programa_id,
-                i.nombre AS programa_nombre,
-                i.monto AS programa_monto,
-                i.descripcion AS programa_descripcion
-            FROM
-                students s
-            LEFT JOIN users u ON s.coordinador_id = u.id
-            LEFT JOIN inventario i ON s.programa_id = i.id -- Join directo
-            ORDER BY
-                s.nombre, s.apellido;
-        `;
+        -- ✅ Lista de programas asociados (muchos a muchos)
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'programa_id', p.id,
+              'nombre', p.nombre,
+              'tipo_programa', p.tipo_programa,
+              'duracion_meses', p.duracion_meses
+            )
+          ) FILTER (WHERE p.id IS NOT NULL),
+          '[]'::json
+        ) AS programas_asociados
 
-        const { rows } = await pool.query(query);
-        res.status(200).json(rows);
+      FROM
+        students s
+      LEFT JOIN users u ON s.coordinador_id = u.id
+      LEFT JOIN estudiante_programas ep ON s.id = ep.estudiante_id
+      LEFT JOIN programas p ON ep.programa_id = p.id
 
-    } catch (err) {
-        console.error('Error obteniendo la lista de estudiantes:', err);
-        res.status(500).json({ error: 'Error interno del servidor al obtener los estudiantes.' });
-    }
+      GROUP BY
+        s.id, u.name
+      ORDER BY
+        s.nombre, s.apellido;
+    `;
+
+    const { rows } = await pool.query(query);
+
+    return res.status(200).json(rows);
+  } catch (err) {
+    console.error("Error obteniendo la lista de estudiantes:", err);
+    return res
+      .status(500)
+      .json({ error: "Error interno del servidor al obtener los estudiantes." });
+  }
 };
 
 
 
-const getStudentsByCoordinatorIdController = async (req, res) => {
-    const { coordinatorId } = req.params;
 
-    if (!coordinatorId || isNaN(coordinatorId)) {
-        return res.status(400).json({ error: 'ID de coordinador inválido o no proporcionado.' });
+// ... (dentro de tu archivo de controllers)
+
+export const getStudentsByCoordinatorIdController = async (req, res) => {
+  const { coordinatorId } = req.params;
+
+  // ✅ Normalizamos y validamos ID de coordinador
+  const coordId = parseInt(coordinatorId, 10);
+  if (!coordId || isNaN(coordId)) {
+    return res
+      .status(400)
+      .json({ error: "ID de coordinador inválido o no proporcionado." });
+  }
+
+  try {
+    const query = `
+      SELECT
+        s.*,
+        u.name AS coordinador_nombre,
+
+        -- ✅ Agregación de TODOS los programas asociados (tabla estudiante_programas)
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'programa_id', p.id,
+              'nombre', p.nombre,
+              'tipo_programa', p.tipo_programa,
+              'duracion_meses', p.duracion_meses
+            )
+          ) FILTER (WHERE p.id IS NOT NULL),
+          '[]'::json
+        ) AS programas_asociados
+
+      FROM
+        students s
+      LEFT JOIN users u ON s.coordinador_id = u.id
+      LEFT JOIN estudiante_programas ep ON s.id = ep.estudiante_id
+      LEFT JOIN programas p ON ep.programa_id = p.id
+
+      WHERE
+        s.coordinador_id = $1
+
+      GROUP BY
+        s.id, u.name
+
+      ORDER BY
+        s.nombre, s.apellido;
+    `;
+
+    const { rows } = await pool.query(query, [coordId]);
+
+    if (rows.length === 0) {
+      return res
+        .status(404)
+        .json({ message: "No se encontraron estudiantes para este coordinador." });
     }
 
-    try {
-        // QUERY CORREGIDA: Usamos el JOIN simple y directo, añadiendo el filtro WHERE.
-        const query = `
-            SELECT
-                s.*,
-                u.name AS coordinador_nombre,
-
-                -- Obtenemos los detalles del programa asociado directamente
-                i.id AS programa_id,
-                i.nombre AS programa_nombre,
-                i.monto AS programa_monto,
-                i.descripcion AS programa_descripcion
-            FROM
-                students s
-            LEFT JOIN users u ON s.coordinador_id = u.id
-            LEFT JOIN inventario i ON s.programa_id = i.id -- Join directo
-            WHERE
-                s.coordinador_id = $1 -- Filtro por coordinador
-            ORDER BY
-                s.nombre, s.apellido;
-        `;
-
-        const { rows } = await pool.query(query, [coordinatorId]);
-
-        // Devolver las filas (será un array vacío si el coordinador no tiene estudiantes, lo cual es correcto)
-        res.status(200).json(rows);
-
-    } catch (err) {
-        console.error('Error obteniendo estudiantes por coordinador:', err);
-        res.status(500).json({ error: 'Error interno del servidor al obtener estudiantes por coordinador.' });
-    }
-};
-
-// =======================================================
-// LÓGICA DE OBTENCIÓN (READ) - Por ID de estudiante
-// =======================================================
-const getStudentByIdController = async (req, res) => {
-    const { id } = req.params;
-    if (!id || isNaN(id)) {
-        return res.status(400).json({ error: 'ID de estudiante inválido.' });
-    }
-
-    try {
-        const query = `
-            SELECT
-                s.*,
-                u.id AS coordinador_id, 
-                u.name AS coordinador_nombre,
-                b.id AS business_id, 
-                b.name AS business_name,
-                b.profile_picture_url AS business_profile_picture_url,
-                i.id AS programa_id_actual, 
-                i.nombre AS nombre_programa, 
-                i.monto AS monto_programa
-            FROM
-                students s
-            LEFT JOIN users u ON s.coordinador_id = u.id
-            LEFT JOIN businesses b ON u.business_id = b.id
-            LEFT JOIN inventario i ON s.programa_id = i.id
-            WHERE
-                s.id = $1;
-        `;
-
-        const result = await pool.query(query, [id]);
-
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'Estudiante no encontrado.' });
-        }
-
-        const flatStudent = result.rows[0];
-
-        const studentResponse = {
-    id: flatStudent.id,
-    nombre: flatStudent.nombre,
-    apellido: flatStudent.apellido,
-    email: flatStudent.email,
-    tipo_documento: flatStudent.tipo_documento,
-    numero_documento: flatStudent.numero_documento,
-    lugar_expedicion: flatStudent.lugar_expedicion,
-    fecha_nacimiento: flatStudent.fecha_nacimiento,
-    lugar_nacimiento: flatStudent.lugar_nacimiento,
-    telefono_llamadas: flatStudent.telefono_llamadas,
-    telefono_whatsapp: flatStudent.telefono_whatsapp,
-    telefono: flatStudent.telefono,
-    numero_documento: flatStudent.numero_documento,
-    simat: flatStudent.simat,
-    estado_matricula: flatStudent.estado_matricula,
-    matricula: flatStudent.matricula,
-    modalidad_estudio: flatStudent.modalidad_estudio,
-    ultimo_curso_visto: flatStudent.ultimo_curso_visto,
-    fecha_inscripcion: flatStudent.fecha_inscripcion,
-    fecha_graduacion: flatStudent.fecha_graduacion,
-    activo: flatStudent.activo,
-    eps: flatStudent.eps,
-    rh: flatStudent.rh,
-    documento_url: flatStudent.documento,
-    created_at: flatStudent.created_at,
-    updated_at: flatStudent.updated_at,
-    // ✅ nuevo campo expuesto
-    posible_graduacion: flatStudent.posible_graduacion,
-    acudiente: flatStudent.nombre_acudiente ? {
-        nombre: flatStudent.nombre_acudiente,
-        tipo_documento: flatStudent.tipo_documento_acudiente,
-        telefono: flatStudent.telefono_acudiente,
-        direccion: flatStudent.direccion_acudiente
-    } : null,
-    coordinador: flatStudent.coordinador_id ? {
-        id: flatStudent.coordinador_id,
-        nombre: flatStudent.coordinador_nombre
-    } : null,
-    business: flatStudent.business_id ? {
-        id: flatStudent.business_id,
-        name: flatStudent.business_name,
-        profilePictureUrl: flatStudent.business_profile_picture_url
-    } : null,
-    programas_asociados: flatStudent.programas_asociados
+    // 🔥 rows ya viene en el formato que tu StudentTable necesita:
+    // - nombre, apellido, etc (de students s.*)
+    // - coordinador_nombre
+    // - programas_asociados: [{ programa_id, nombre, tipo_programa, duracion_meses }, ...]
+    return res.status(200).json(rows);
+  } catch (err) {
+    console.error("Error obteniendo estudiantes por coordinador:", err);
+    return res.status(500).json({
+      error: "Error interno del servidor al obtener estudiantes por coordinador.",
+    });
+  }
 };
 
 
-        res.status(200).json(studentResponse);
 
-    } catch (err) {
-        console.error('Error obteniendo estudiante por ID:', err);
-        res.status(500).json({ error: 'Error interno del servidor' });
+
+
+export const getStudentByIdController = async (req, res) => {
+  const { id } = req.params;
+
+  // ✅ Normalizamos y validamos ID
+  const studentId = parseInt(id, 10);
+  if (!studentId || isNaN(studentId)) {
+    return res.status(400).json({ error: "ID de estudiante inválido." });
+  }
+
+  try {
+    const query = `
+      SELECT
+        s.*,
+        u.id AS coordinador_id, 
+        u.name AS coordinador_nombre,
+        b.id AS business_id, 
+        b.name AS business_name,
+        b.profile_picture_url AS business_profile_picture_url,
+        
+        -- ✅ Agregación de TODOS los programas asociados (Tabla estudiante_programas)
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'programa_id', p_assoc.id,
+              'nombre', p_assoc.nombre,
+              'tipo_programa', p_assoc.tipo_programa,
+              'duracion_meses', p_assoc.duracion_meses
+            )
+          ) FILTER (WHERE p_assoc.id IS NOT NULL),
+          '[]'::json
+        ) AS programas_asociados
+
+      FROM
+        students s
+      LEFT JOIN users u ON s.coordinador_id = u.id
+      LEFT JOIN businesses b ON u.business_id = b.id
+
+      -- ❌ Ya NO usamos s.programa_id porque esa columna fue eliminada
+      -- LEFT JOIN programas p_main ON s.programa_id = p_main.id 
+
+      LEFT JOIN estudiante_programas ep ON s.id = ep.estudiante_id
+      LEFT JOIN programas p_assoc ON ep.programa_id = p_assoc.id
+
+      WHERE
+        s.id = $1
+
+      GROUP BY 
+        s.id, u.id, u.name, b.id, b.name, b.profile_picture_url;
+    `;
+
+    const result = await pool.query(query, [studentId]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Estudiante no encontrado." });
     }
+
+    const flatStudent = result.rows[0];
+
+    // ----------------------------------------------------
+    // Mapeo de Respuesta
+    // ----------------------------------------------------
+    const studentResponse = {
+      // ✅ Campos directos de students
+      id: flatStudent.id,
+      nombre: flatStudent.nombre,
+      apellido: flatStudent.apellido,
+      email: flatStudent.email,
+      tipo_documento: flatStudent.tipo_documento,
+      numero_documento: flatStudent.numero_documento,
+      lugar_expedicion: flatStudent.lugar_expedicion,
+      fecha_nacimiento: flatStudent.fecha_nacimiento,
+      lugar_nacimiento: flatStudent.lugar_nacimiento,
+      telefono_llamadas: flatStudent.telefono_llamadas,
+      telefono_whatsapp: flatStudent.telefono_whatsapp,
+      telefono: flatStudent.telefono,
+      simat: flatStudent.simat,
+      estado_matricula: flatStudent.estado_matricula,
+      matricula: flatStudent.matricula,
+      modalidad_estudio: flatStudent.modalidad_estudio,
+      ultimo_curso_visto: flatStudent.ultimo_curso_visto,
+      fecha_inscripcion: flatStudent.fecha_inscripcion,
+      fecha_graduacion: flatStudent.fecha_graduacion,
+      activo: flatStudent.activo,
+      eps: flatStudent.eps,
+      rh: flatStudent.rh,
+      documento_url: flatStudent.documento, // o documento_url según se llame en la tabla
+      created_at: flatStudent.created_at,
+      updated_at: flatStudent.updated_at,
+      posible_graduacion: flatStudent.posible_graduacion,
+
+      // ❌ Ya no hay programa_principal porque no existe programa_id en students
+      // programa_principal: null,
+
+      // ✅ Acudiente
+      acudiente: flatStudent.nombre_acudiente
+        ? {
+            nombre: flatStudent.nombre_acudiente,
+            tipo_documento: flatStudent.tipo_documento_acudiente,
+            telefono: flatStudent.telefono_acudiente,
+            direccion: flatStudent.direccion_acudiente,
+          }
+        : null,
+
+      // ✅ Coordinador
+      coordinador: flatStudent.coordinador_id
+        ? {
+            id: flatStudent.coordinador_id,
+            nombre: flatStudent.coordinador_nombre,
+          }
+        : null,
+
+      // ✅ Business
+      business: flatStudent.business_id
+        ? {
+            id: flatStudent.business_id,
+            name: flatStudent.business_name,
+            profilePictureUrl: flatStudent.business_profile_picture_url,
+          }
+        : null,
+
+      // ✅ Programas Asociados
+      // Nos aseguramos de devolver SIEMPRE un array (no null)
+      programas_asociados:
+        flatStudent.programas_asociados && Array.isArray(flatStudent.programas_asociados)
+          ? flatStudent.programas_asociados
+          : [],
+    };
+
+    return res.status(200).json(studentResponse);
+  } catch (err) {
+    console.error("Error obteniendo estudiante por ID:", err);
+    return res.status(500).json({ error: "Error interno del servidor" });
+  }
 };
+
 
 
 
@@ -398,116 +571,136 @@ const studentResponse = {
  * Utiliza una transacción para garantizar la integridad de los datos y un bulk insert
  * para una actualización eficiente de los programas.
  */
-const updateStudentController = async (req, res) => {
-    // Extraemos el ID del estudiante de los parámetros de la URL
-    const { id } = req.params;
+export const updateStudentController = async (req, res) => {
+  const { id } = req.params;
+  const studentData = req.body;
 
-    // Capturamos todo el cuerpo de la petición que contiene los datos a actualizar
-    const studentData = req.body;
+  // ✅ Validación y normalización del ID
+  const studentId = parseInt(id, 10);
+  if (!studentId || isNaN(studentId)) {
+    return res
+      .status(400)
+      .json({ error: "ID de estudiante inválido o no proporcionado." });
+  }
 
-    // --- Validaciones Esenciales ---
-    // Es crucial validar que el ID sea un número válido antes de proceder.
-    if (!id || isNaN(parseInt(id, 10))) {
-        return res.status(400).json({ error: 'ID de estudiante inválido o no proporcionado.' });
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+
+    // Separamos los programas de los demás campos
+    const { programasIds, ...studentFieldsToUpdate } = studentData;
+
+    const setClauses = [];
+    const updateParams = [];
+    let paramIndex = 1;
+
+    // ✅ Construimos dinámicamente el UPDATE de students
+    for (const key in studentFieldsToUpdate) {
+      if (!Object.prototype.hasOwnProperty.call(studentFieldsToUpdate, key)) {
+        continue;
+      }
+
+      const value = studentFieldsToUpdate[key];
+
+      // Ignoramos campos undefined y el id
+      if (value === undefined || key === "id") continue;
+
+      // camelCase -> snake_case
+      const dbKey = key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+
+      // 🚫 IMPORTANTE: ignorar cualquier campo que termine siendo programa_id
+      if (dbKey === "programa_id") {
+        console.log(
+          `[updateStudentController] Ignorando campo legado '${key}' -> '${dbKey}' porque la columna programa_id ya no existe en students`
+        );
+        continue;
+      }
+
+      setClauses.push(`${dbKey} = $${paramIndex}`);
+      updateParams.push(value);
+      paramIndex++;
     }
-    // Aquí puedes agregar más validaciones (ej. con Joi o Zod) para los campos del body.
 
-    let client;
-    try {
-        // Obtenemos una conexión del pool para manejar la transacción
-        client = await pool.connect();
-        // Iniciamos la transacción
-        await client.query('BEGIN');
+    if (setClauses.length > 0) {
+      // ✅ updated_at sin parámetro adicional
+      setClauses.push(`updated_at = CURRENT_TIMESTAMP`);
+      // El ID va al final
+      updateParams.push(studentId);
 
-        // --- 1. Actualización de la tabla 'students' ---
+      const updateStudentQuery = `
+        UPDATE students
+        SET ${setClauses.join(", ")}
+        WHERE id = $${paramIndex}
+      `;
 
-        // Separamos los Ids de los programas del resto de los datos del estudiante
-        const { programasIds, ...studentFieldsToUpdate } = studentData;
-
-        const setClauses = [];
-        const updateParams = [];
-        let paramIndex = 1;
-
-        // Construimos la consulta UPDATE dinámicamente solo con los campos que se enviaron
-        for (const key in studentFieldsToUpdate) {
-            // Verificamos que el campo realmente exista en el body (no es undefined)
-            if (studentFieldsToUpdate[key] !== undefined) {
-                // Asumimos que los nombres de las columnas en la DB son snake_case (ej. tipo_documento)
-                // y los del frontend son camelCase (ej. tipoDocumento). Esta línea convierte el formato.
-                const dbKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
-
-                setClauses.push(`${dbKey} = $${paramIndex}`);
-                updateParams.push(studentFieldsToUpdate[key]);
-                paramIndex++;
-            }
-        }
-
-        // Solo ejecutamos la consulta UPDATE si hay al menos un campo para actualizar
-        if (setClauses.length > 0) {
-            // Agregamos la actualización de la fecha de modificación
-            setClauses.push(`updated_at = CURRENT_TIMESTAMP`);
-            // El último parámetro siempre será el ID del estudiante para la cláusula WHERE
-            updateParams.push(id);
-
-            const updateStudentQuery = `
-                UPDATE students
-                SET ${setClauses.join(', ')}
-                WHERE id = $${paramIndex}
-            `;
-
-            await client.query(updateStudentQuery, updateParams);
-        }
-
-        // --- 2. Sincronización de la tabla 'estudiante_programas' ---
-
-        // Esta lógica solo se ejecuta si el array 'programasIds' fue incluido en la petición
-        if (programasIds && Array.isArray(programasIds)) {
-            // Paso A: Borramos todas las asociaciones existentes para este estudiante.
-            // Esto simplifica la lógica y asegura que solo queden las nuevas asociaciones.
-            // Funciona correctamente incluso si no hay ninguna fila que borrar.
-            await client.query('DELETE FROM estudiante_programas WHERE estudiante_id = $1', [id]);
-
-            // Paso B: Si el array no está vacío, insertamos las nuevas asociaciones.
-            if (programasIds.length > 0) {
-                // MEJORA CLAVE: Creamos una única consulta "bulk insert".
-                // Es mucho más eficiente que hacer un INSERT por cada programa en un bucle.
-
-                // Construye los placeholders: ($1, $2), ($1, $3), ($1, $4), etc.
-                const valuesClauses = programasIds.map((_, index) => `($1, $${index + 2})`).join(', ');
-
-                // Crea el array de valores: [estudianteId, programaId1, programaId2, ...]
-                const programInsertValues = [id, ...programasIds];
-
-                const programAssignQuery = `
-                    INSERT INTO estudiante_programas (estudiante_id, programa_id)
-                    VALUES ${valuesClauses};
-                `;
-
-                await client.query(programAssignQuery, programInsertValues);
-            }
-        }
-
-        // Si todo salió bien, confirmamos los cambios en la base de datos
-        await client.query('COMMIT');
-
-        res.status(200).json({ message: 'Estudiante actualizado exitosamente' });
-
-    } catch (err) {
-        // Si ocurre cualquier error, revertimos todos los cambios de la transacción
-        if (client) {
-            await client.query('ROLLBACK');
-        }
-
-        // Usamos un manejador de errores centralizado para responder al cliente
-        handleServerError(res, err, 'Error interno del servidor al actualizar el estudiante.');
-
-    } finally {
-        // Es fundamental liberar la conexión al pool, tanto si hubo éxito como si hubo error.
-        if (client) {
-            client.release();
-        }
+      await client.query(updateStudentQuery, updateParams);
     }
+
+    // ✅ Sincronizamos estudiante_programas SOLO si llega programasIds en el body
+    if (programasIds !== undefined) {
+      if (!Array.isArray(programasIds)) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({
+          error: "El campo programasIds debe ser un arreglo de IDs de programas.",
+        });
+      }
+
+      // Normalizamos: números, únicos y válidos
+      const sanitizedProgramIds = [
+        ...new Set(
+          programasIds
+            .map((p) => parseInt(p, 10))
+            .filter((p) => !isNaN(p))
+        ),
+      ];
+
+      // Primero borramos las asociaciones actuales
+      await client.query(
+        "DELETE FROM estudiante_programas WHERE estudiante_id = $1",
+        [studentId]
+      );
+
+      // Luego insertamos las nuevas (si hay)
+      if (sanitizedProgramIds.length > 0) {
+        const valuesClauses = sanitizedProgramIds
+          .map((_, index) => `($1, $${index + 2})`)
+          .join(", ");
+
+        const programInsertValues = [studentId, ...sanitizedProgramIds];
+
+        const programAssignQuery = `
+          INSERT INTO estudiante_programas (estudiante_id, programa_id)
+          VALUES ${valuesClauses};
+        `;
+
+        await client.query(programAssignQuery, programInsertValues);
+      }
+    }
+
+    await client.query("COMMIT");
+
+    return res
+      .status(200)
+      .json({ message: "Estudiante actualizado exitosamente." });
+  } catch (err) {
+    if (client) {
+      await client.query("ROLLBACK");
+    }
+    console.error("Error en updateStudentController:", err);
+    return handleServerError(
+      res,
+      err,
+      "Error interno del servidor al actualizar el estudiante."
+    );
+  } finally {
+    if (client) {
+      client.release();
+    }
+  }
 };
+
+
 
 // =======================================================
 // LÓGICA DE ELIMINACIÓN (DELETE)
@@ -585,109 +778,98 @@ const updateEstadoStudentController = async (req, res) => {
 // LÓGICA DE OBTENCIÓN (READ) - Filtrado por Programa
 // =======================================================
 const getStudentsByProgramaIdController = async (req, res) => {
-    const { programaId } = req.params; // Recibimos el ID del programa
-    if (!programaId || isNaN(programaId)) {
-        return res.status(400).json({ error: 'ID de programa inválido.' });
-    }
+  const { programaId } = req.params;
+  if (!programaId || isNaN(programaId)) {
+    return res.status(400).json({ error: "ID de programa inválido." });
+  }
 
-    try {
-        const query = `
-            SELECT
-                s.*, -- Seleccionamos todas las columnas del estudiante directamente
-                u.name AS coordinador_nombre,
-                COALESCE(
-                    json_agg(
-                        json_build_object(
-                            'programa_id', i.id,
-                            'nombre_programa', i.nombre,
-                            'monto_programa', i.monto
-                        )
-                        ORDER BY i.nombre
-                    ) FILTER (WHERE i.id IS NOT NULL),
-                    '[]'::json
-                ) AS programas_asociados
-            FROM
-                students s
-            LEFT JOIN
-                estudiante_programas ep ON s.id = ep.estudiante_id
-            LEFT JOIN
-                inventario i ON ep.programa_id = i.id
-            LEFT JOIN
-                users u ON s.coordinador_id = u.id
-            WHERE
-                ep.programa_id = $1 -- Filtramos por el ID del programa en la tabla intermedia
-            GROUP BY
-                s.id, u.name
-            ORDER BY
-                s.nombre, s.apellido;
-        `;
-        const result = await pool.query(query, [programaId]);
-        res.status(200).json(result.rows);
-    } catch (err) {
-        handleServerError(res, err, 'Error obteniendo estudiantes por ID de programa.');
-    }
+  try {
+    const query = `
+      SELECT
+        s.*,
+        u.name AS coordinador_nombre,
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'programa_id', p.id,
+              'nombre_programa', p.nombre,
+              'tipo_programa', p.tipo_programa
+            )
+            ORDER BY p.nombre
+          ) FILTER (WHERE p.id IS NOT NULL),
+          '[]'::json
+        ) AS programas_asociados
+      FROM
+        students s
+      LEFT JOIN estudiante_programas ep ON s.id = ep.estudiante_id
+      LEFT JOIN programas p ON ep.programa_id = p.id
+      LEFT JOIN users u ON s.coordinador_id = u.id
+      WHERE
+        ep.programa_id = $1
+      GROUP BY
+        s.id, u.name
+      ORDER BY
+        s.nombre, s.apellido;
+    `;
+    const result = await pool.query(query, [programaId]);
+    res.status(200).json(result.rows);
+  } catch (err) {
+    handleServerError(res, err, "Error obteniendo estudiantes por ID de programa.");
+  }
 };
+
 
 // =======================================================
 // LÓGICA DE OBTENCIÓN (READ) - Filtrado por Tipo de Programa (Ej. Bachillerato vs Técnicos)
 // =======================================================
 const getStudentsByProgramTypeController = async (req, res) => {
-    const { tipo } = req.params;
-    const { activo, modalidad } = req.query;
+  const { tipo } = req.params;
+  const { activo, modalidad } = req.query;
 
-    if (tipo !== 'bachillerato' && tipo !== 'tecnicos') {
-        return res.status(400).json({ error: 'Tipo de programa inválido. Use "bachillerato" o "tecnicos".' });
-    }
+  if (tipo !== "bachillerato" && tipo !== "tecnicos") {
+    return res
+      .status(400)
+      .json({ error: 'Tipo de programa inválido. Use "bachillerato" o "tecnicos".' });
+  }
 
-    const programTypeFilter = tipo === 'bachillerato' ? 'Validacion' : 'Tecnico';
+  const programTypeFilter = tipo === "bachillerato" ? "Validacion" : "Tecnico";
 
-    try {
-        // ✅ CONSULTA FINAL Y CORRECTA PARA TU ESQUEMA
-        const query = `
-            -- 1. Usamos tu lógica original para encontrar los IDs de los programas correctos
-            WITH programas_filtrados AS (
-                SELECT id 
-                FROM inventario
-                WHERE
-                    CASE
-                        WHEN nombre ILIKE '%bachillerato%' THEN 'Validacion'
-                        ELSE 'Tecnico'
-                    END = $1
-            )
-            -- 2. Seleccionamos los estudiantes y unimos con inventario para obtener el nombre del programa
-            SELECT
-                s.id, s.nombre, s.apellido, s.email, s.telefono_whatsapp,
-                s.activo, s.modalidad_estudio,
-                i.nombre AS nombre_programa
-            FROM
-                students s
-            JOIN 
-                inventario i ON s.programa_id = i.id
-            WHERE
-                -- 3. La condición clave: El programa del estudiante DEBE ESTAR EN la lista que filtramos
-                s.programa_id IN (SELECT id FROM programas_filtrados)
-                
-                -- Tus filtros opcionales (ya estaban bien)
-                AND ($2::TEXT IS NULL OR s.activo::TEXT = $2::TEXT)
-                AND ($3::TEXT IS NULL OR s.modalidad_estudio = $3)
-            ORDER BY
-                s.apellido, s.nombre;
-        `;
+  try {
+    const query = `
+      SELECT
+        s.id,
+        s.nombre,
+        s.apellido,
+        s.email,
+        s.telefono_whatsapp,
+        s.activo,
+        s.modalidad_estudio,
+        p.nombre AS nombre_programa,
+        p.tipo_programa
+      FROM
+        students s
+      JOIN estudiante_programas ep ON s.id = ep.estudiante_id
+      JOIN programas p ON ep.programa_id = p.id
+      WHERE
+        p.tipo_programa = $1
+        AND ($2::TEXT IS NULL OR s.activo::TEXT = $2::TEXT)
+        AND ($3::TEXT IS NULL OR s.modalidad_estudio = $3)
+      ORDER BY
+        s.apellido,
+        s.nombre,
+        p.nombre;
+    `;
 
-        const values = [
-            programTypeFilter,
-            activo,
-            modalidad
-        ];
+    const values = [programTypeFilter, activo, modalidad];
 
-        const result = await pool.query(query, values);
-        res.status(200).json(result.rows);
-
-    } catch (err) {
-        console.error(`Error en getStudentsByProgramTypeController (${tipo}):`, err);
-        res.status(500).json({ error: 'Error interno del servidor.' });
-    }
+    const result = await pool.query(query, values);
+    res.status(200).json(result.rows);
+  } catch (err) {
+    console.error(`Error en getStudentsByProgramTypeController (${tipo}):`, err);
+    res.status(500).json({ error: "Error interno del servidor." });
+  }
 };
+
 
 export const updatePosibleGraduacionStudentController = async (req, res) => {
     const { id } = req.params;
@@ -893,15 +1075,11 @@ export const deleteStudentDocumentController = async (req, res) => {
 
 
 export {
-    createStudentController,
-    getStudentsController,
-    getStudentByIdController,
-    updateStudentController,
+
     deleteStudentController,
     updateEstadoStudentController,
     // Renombre y consolidación de controladores de filtrado
     getStudentsByProgramaIdController, // Nuevo controlador para filtrar por ID de programa específico
     getStudentsByProgramTypeController, // Nuevo controlador para filtrar por tipo de programa (bachillerato/tecnicos)
-    getStudentsByCoordinatorIdController,
     getStudentByDocumentController
 };

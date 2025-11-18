@@ -56,6 +56,7 @@ router.post('/evaluaciones/:id/preguntas', addPreguntaConOpciones);
 
 // Actualizar / eliminar pregunta
 router.put('/evaluaciones/preguntas/:preguntaId', updatePregunta);
+
 router.delete('/preguntas/:preguntaId', deletePregunta);
 
 // Crear / actualizar / eliminar opción

@@ -249,44 +249,67 @@ const getTotalPagosByStudentIdController = async (req, res) => {
 };
 
 // --- Obtener información del programa de un estudiante (para el frontend) ---
-const getStudentProgramInfoController = async (req, res) => {
-    const { student_id } = req.params;
+export const getStudentProgramInfoController = async (req, res) => {
+  const { student_id } = req.params;
 
-    if (!student_id || isNaN(student_id)) {
-        return res.status(400).json({ error: 'ID de estudiante inválido.' });
-    }
+  // ✅ Validar y normalizar ID
+  const studentId = parseInt(student_id, 10);
+  if (!studentId || isNaN(studentId)) {
+    return res.status(400).json({ error: "ID de estudiante inválido." });
+  }
 
-    try {
-        // ✅ CORRECCIÓN: Se utiliza un JOIN directo, ya que programa_id es un entero.
-        const query = `
-            SELECT
-                i.id AS programa_id,
-                i.nombre AS programa_nombre,
-                i.monto AS costo_mensual_esperado,
-                s.nombre AS student_nombre,
-                s.apellido AS student_apellido
-            FROM
-                students s
-            JOIN 
-                public.inventario i ON s.programa_id = i.id
-            WHERE 
-                s.id = $1;
-        `;
+  try {
+    const query = `
+      SELECT
+        s.id AS student_id,
+        s.nombre AS student_nombre,
+        s.apellido AS student_apellido,
         
-        const result = await pool.query(query, [student_id]);
+        -- 🔥 Todos los programas asociados al estudiante
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'programa_id', p.id,
+              'nombre', p.nombre,
+              'tipo_programa', p.tipo_programa,
+              'duracion_meses', p.duracion_meses,
+              'valor_matricula', p.valor_matricula,
+              'valor_mensualidad', p.valor_mensualidad
+            )
+          ) FILTER (WHERE p.id IS NOT NULL),
+          '[]'::json
+        ) AS programas_asociados
 
-        // Se ajusta para devolver un solo objeto o un array de un solo elemento
-        if (result.rows.length > 0) {
-            // Si esperas un solo programa por estudiante, puedes devolver el primer objeto
-            res.status(200).json(result.rows); 
-        } else {
-            res.status(404).json({ message: 'No se encontró un programa asociado para este estudiante.' });
-        }
-    } catch (error) {
-        console.error(`Error al obtener la info del programa del estudiante:`, error);
-        res.status(500).json({ message: 'Error interno del servidor.' });
+      FROM
+        students s
+      LEFT JOIN estudiante_programas ep ON s.id = ep.estudiante_id
+      LEFT JOIN programas p ON ep.programa_id = p.id
+      WHERE
+        s.id = $1
+      GROUP BY
+        s.id;
+    `;
+
+    const result = await pool.query(query, [studentId]);
+
+    if (result.rows.length === 0) {
+      // No existe el estudiante
+      return res
+        .status(404)
+        .json({ message: "Estudiante no encontrado." });
     }
+
+    // ✅ Devolvemos un solo objeto (no array)
+    const info = result.rows[0];
+    return res.status(200).json(info);
+  } catch (error) {
+    console.error("Error al obtener la info del programa del estudiante:", error);
+    return res
+      .status(500)
+      .json({ message: "Error interno del servidor." });
+  }
 };
+
 
 // --- NUEVA FUNCIÓN PARA OBTENER LOS TIPOS DE PAGO ---
 export const getPaymentTypesController = async (req, res) => {
@@ -309,6 +332,6 @@ export {
     getPagosByStudentIdController,
     updateEstadoPagoController,
     getTotalPagosByStudentIdController,
-    getStudentProgramInfoController,
+  
    // ¡Exportar la nueva función!
 };

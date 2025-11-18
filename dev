@@ -1,0 +1,12 @@
+
+> backend@1.0.0 start
+> node ./src/index.js
+
+Servidor escuchando en el puerto 3002
+Conectado a la base de datos PostgreSQL.
+Conexión exitosa y prueba de zona horaria completada.
+========================================================
+-> Hora en UTC (como la maneja Node): 2025-11-14T21:52:42.179Z
+-> HORA VERIFICADA (formato Colombia): 14 de noviembre de 2025, 4:52:42 p. m.
+========================================================
+�Desea terminar el trabajo por lotes (S/N)? 

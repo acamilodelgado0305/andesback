@@ -41,16 +41,52 @@ export const getPagosById = async (id) => {
 
 // Función para obtener pagos por ID de estudiante
 export const getPagosByStudentId = async (student_id) => {
-    const query = `
-        SELECT p.*, tp.nombre AS tipo_pago_nombre
-        FROM pagos p
-        JOIN tipos_pago tp ON p.tipo_pago_id = tp.id
-        WHERE p.student_id = $1
-        ORDER BY p.fecha_pago DESC, p.created_at DESC;
-    `;
-    const { rows } = await pool.query(query, [student_id]);
-    return rows;
+  const query = `
+    WITH student_programs AS (
+      SELECT
+        s.id AS student_id,
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'programa_id', pr.id,
+              'nombre', pr.nombre,
+              'tipo_programa', pr.tipo_programa,
+              'duracion_meses', pr.duracion_meses,
+              'valor_matricula', pr.valor_matricula,
+              'valor_mensualidad', pr.valor_mensualidad
+            )
+          ) FILTER (WHERE pr.id IS NOT NULL),
+          '[]'::json
+        ) AS programas_asociados
+      FROM
+        students s
+      LEFT JOIN estudiante_programas ep ON s.id = ep.estudiante_id
+      LEFT JOIN programas pr ON ep.programa_id = pr.id
+      WHERE
+        s.id = $1
+      GROUP BY
+        s.id
+    )
+    SELECT
+      p.*,
+      tp.nombre AS tipo_pago_nombre,
+      sp.programas_asociados
+    FROM
+      pagos p
+    JOIN tipos_pago tp ON p.tipo_pago_id = tp.id
+    LEFT JOIN student_programs sp ON sp.student_id = p.student_id
+    WHERE
+      p.student_id = $1
+    ORDER BY
+      p.fecha_pago DESC,
+      p.created_at DESC;
+  `;
+
+  const { rows } = await pool.query(query, [student_id]);
+  return rows;
 };
+
+
 
 // Función para actualizar un pago
 export const updatePago = async (id, student_id, tipo_pago_id, monto, fecha_pago, periodo_pagado, metodo_pago, referencia_transaccion, estado, observaciones) => {
