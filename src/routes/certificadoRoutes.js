@@ -3,10 +3,12 @@
 import { Router } from 'express';
 import multer from 'multer'; // <-- 1. IMPORTANTE: Importar multer
 
-import { 
+import {
     generarCertificadoController,
-    generarCarnetController 
+    generarCarnetController
 } from '../controllers/certificadoController.js';
+
+import { generarCertificadoPDF } from '../controllers/certificadosPdfController.js';
 
 // Si necesitas autenticación para estas rutas, importa tu middleware
 // import { verifyToken } from '../middleware/authMiddleware.js'; 
@@ -17,7 +19,7 @@ const router = Router();
 const upload = multer({ dest: 'uploads/' });
 
 // Ruta para generar un certificado (no necesita multer)
-router.post('/generar-certificado', 
+router.post('/generar-certificado',
     // verifyToken,
     generarCertificadoController
 );
@@ -27,10 +29,12 @@ router.post('/generar-certificado',
 // debe pasar por el middleware de multer para procesar un único archivo
 // que vendrá en el campo llamado 'foto'.
 router.post(
-    '/generar-carnet', 
+    '/generar-carnet',
     // verifyToken, 
     upload.single('foto'), // <-- 2. IMPORTANTE: Aplicar el middleware aquí
     generarCarnetController
 );
+
+router.post('/generar-certificado-pdf', generarCertificadoPDF);
 
 export default router;

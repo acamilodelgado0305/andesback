@@ -13,8 +13,8 @@ const registerController = async (req, res) => {
   const { email, password, name } = req.body;
 
   if (!email || !password || !name) {
-    return res.status(400).json({ 
-      error: 'Email, contraseña y nombre son requeridos' 
+    return res.status(400).json({
+      error: 'Email, contraseña y nombre son requeridos'
     });
   }
 
@@ -35,24 +35,48 @@ const registerController = async (req, res) => {
 // Iniciar sesión
 const loginController = async (req, res) => {
   const { email, password } = req.body;
+
   try {
+    // 1. Buscamos el usuario (incluyendo campos vitales para el token)
     const user = await getUserByEmail(email);
+
+    // 2. Seguridad: Mensaje genérico para evitar enumeración de usuarios
     if (!user) {
-      return res.status(400).json({ error: 'Usuario no encontrado' });
+      return res.status(401).json({ error: 'Credenciales inválidas' });
     }
 
+    // 3. Verificación de contraseña
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      return res.status(400).json({ error: 'Contraseña incorrecta' });
+      return res.status(401).json({ error: 'Credenciales inválidas' });
     }
 
-    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '1h' });
+    // 4. Construcción del Payload Enriquecido (La clave de la mejora)
+    // Usamos datos extraídos directamente de tu esquema SQL
+    const tokenPayload = {
+      sub: user.id,            // Standard Subject ID
+      name: user.name,         // Para UX
+      role: user.role,         // Para permisos (admin/user)
+      bid: user.business_id,   // Para filtrar datos de la empresa
+      scope: user.app          // Para contexto de la aplicación
+    };
 
-    // Enviar el token en la respuesta para que el frontend lo gestione
-    res.json({ token, message: 'Inicio de sesión exitoso' });
+    const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '8h' }); // 8h jornada laboral
+
+    // 5. Respuesta limpia: Token + Datos de usuario (sin password)
+    res.json({
+      token,
+      user: {
+        email: user.email,
+        name: user.name,
+        role: user.role
+      },
+      message: 'Bienvenido al sistema'
+    });
+
   } catch (err) {
-    console.error('Error iniciando sesión', err);
-    res.status(500).json({ error: 'Error iniciando sesión' });
+    console.error('Error crítico en login:', err); // Log interno detallado
+    res.status(500).json({ error: 'Error procesando la solicitud' }); // Mensaje seguro al cliente
   }
 };
 
@@ -71,20 +95,20 @@ const getUserByIdController = async (req, res) => {
       FROM users 
       WHERE id = $1
     `, [id]);
-    
+
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
     res.json(result.rows[0]);
-    
+
   } catch (err) {
     console.error('Error obteniendo usuario por ID:', err);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Error interno del servidor',
       details: process.env.NODE_ENV === 'development' ? err.message : null
     });
   }
 };
 
-export { registerController, loginController, getUserByIdController};
+export { registerController, loginController, getUserByIdController };
