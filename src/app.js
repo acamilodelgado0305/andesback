@@ -13,7 +13,7 @@ import adminrRoutes from './routes/admin/adminRoutes.js'
 import docentesRouter from './routes/docentesRouter.js'
 import materiasRouter from './routes/materiasRouter.js'
 import evaluacionesRouter from "./routes/evaluacionesRouter.js"
-import programasRouter from "./routes/programasRoutes.js"
+import programasRoutes from "./routes/programasRoutes.js"
 import studentAuthRouter from "./routes/studentAuthRoutes.js"
 import dotenv from "dotenv";
 
@@ -42,11 +42,9 @@ app.use((err, req, res, next) => {
 
 // Rutas públicas (sin protección)
 app.use('/api', authRouter);
+app.use('/api', programasRoutes)
 app.use('/api',  CertificadosRouter);
-
-// Rutas protegidas (requieren autenticación con token)
-app.use('/api', StudentRouter);
-app.use('/api',  InventarioRouter);
+;
 app.use('/api', RegistroRouter);
 app.use('/api',  facturaRouter);
 app.use('/api',  subjectRouter);
@@ -56,7 +54,13 @@ app.use('/api',  adminrRoutes);
 app.use('/api',  docentesRouter);
 app.use('/api',  materiasRouter);
 app.use('/api', evaluacionesRouter);
-app.use('/api/programas', programasRouter);
+
 app.use('/api/student-portal', studentAuthRouter);
+
+// Rutas protegidas (requieren autenticación con token)
+app.use('/api', StudentRouter);
+app.use('/api',  InventarioRouter);
+
+
 
 export default app;

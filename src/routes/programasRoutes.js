@@ -11,18 +11,18 @@ import {
 const router = express.Router();
 
 // Crear programa
-router.post("/", createPrograma);
+router.post("/programs", createPrograma);
 
 // Listar programas (con filtros opcionales ?tipo_programa=...&activo=true/false)
-router.get("/", getProgramas);
+router.get("/programs", getProgramas);
 
 // Obtener programa por ID
-router.get("/:id", getProgramaById);
+router.get("/programs/:id", getProgramaById);
 
 // Actualizar programa
-router.put("/:id", updatePrograma);
+router.put("/programs/:id", updatePrograma);
 
 // Desactivar programa (borrado lógico)
-router.delete("/:id", deletePrograma);
+router.delete("/programs/:id", deletePrograma);
 
 export default router;
