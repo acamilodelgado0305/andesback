@@ -56,7 +56,7 @@ app.use('/api',  adminrRoutes);
 app.use('/api',  docentesRouter);
 app.use('/api',  materiasRouter);
 app.use('/api', evaluacionesRouter);
-app.use('/api', programasRouter);
+app.use('/api/programas', programasRouter);
 app.use('/api/student-portal', studentAuthRouter);
 
 export default app;
