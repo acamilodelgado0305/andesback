@@ -42,6 +42,7 @@ app.use((err, req, res, next) => {
 
 // Rutas públicas (sin protección)
 app.use('/api', authRouter);
+app.use('/api',  CertificadosRouter);
 
 // Rutas protegidas (requieren autenticación con token)
 app.use('/api', StudentRouter);
@@ -50,7 +51,7 @@ app.use('/api', RegistroRouter);
 app.use('/api',  facturaRouter);
 app.use('/api',  subjectRouter);
 app.use('/api',  GradesRouter);
-app.use('/api',  CertificadosRouter);
+
 app.use('/api',  adminrRoutes);
 app.use('/api',  docentesRouter);
 app.use('/api',  materiasRouter);
