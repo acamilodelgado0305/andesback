@@ -12,15 +12,21 @@ const createInventarioItem = async (nombre, monto, descripcion, user_id) => {
 
 // Obtener todos los items de inventario de un usuario específico
 // También puede obtener ítems maestros (user_id IS NULL) si user_id es null o si se usa para un administrador
-const getInventarioItems = async (user_id = null) => { // Hacemos user_id opcional en el modelo para flexibilidad (ej. admin viendo todo)
-  if (user_id !== null) { // Si se proporciona un user_id, filtramos por él
-    const result = await pool.query('SELECT * FROM inventario WHERE user_id = $1', [user_id]);
-    return result.rows;
-  } else { // Si no se proporciona user_id, se asume que es para ver ítems maestros o para un admin (se ajustará en el controlador)
-    const result = await pool.query('SELECT * FROM inventario WHERE user_id IS NULL'); // Retorna solo los ítems maestros por defecto
-    return result.rows;
-  }
+export const getInventarioItems = async (user_id) => {
+  const result = await pool.query(
+    `
+      SELECT *
+      FROM inventario
+      WHERE user_id = $1 OR user_id IS NULL
+      ORDER BY id DESC
+    `,
+    [user_id]
+  );
+
+  return result.rows;
 };
+
+
 
 // Obtener un item de inventario por ID
 const getInventarioItemById = async (id) => {
@@ -59,4 +65,4 @@ const getInventarioItemsByUserId = async (userId) => {
   return result.rows;
 };
 
-export { createInventarioItem, getInventarioItems, getInventarioItemById, updateInventarioItem, getInventarioItemsByUserId };
+export { createInventarioItem, getInventarioItemById, updateInventarioItem, getInventarioItemsByUserId };

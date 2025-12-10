@@ -37,48 +37,50 @@ const loginController = async (req, res) => {
   const { email, password } = req.body;
 
   try {
-    // 1. Buscamos el usuario (incluyendo campos vitales para el token)
     const user = await getUserByEmail(email);
 
-    // 2. Seguridad: Mensaje genérico para evitar enumeración de usuarios
     if (!user) {
-      return res.status(401).json({ error: 'Credenciales inválidas' });
+      return res.status(401).json({ error: "Credenciales inválidas" });
     }
 
-    // 3. Verificación de contraseña
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      return res.status(401).json({ error: 'Credenciales inválidas' });
+      return res.status(401).json({ error: "Credenciales inválidas" });
     }
 
-    // 4. Construcción del Payload Enriquecido (La clave de la mejora)
-    // Usamos datos extraídos directamente de tu esquema SQL
     const tokenPayload = {
-      sub: user.id,            // Standard Subject ID
-      name: user.name,         // Para UX
-      role: user.role,         // Para permisos (admin/user)
-      bid: user.business_id,   // Para filtrar datos de la empresa
-      scope: user.app          // Para contexto de la aplicación
+      sub: user.id,
+      name: user.name,
+      role: user.role,
+      bid: user.business_id,
+      scope: user.app,
     };
 
-    const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '8h' }); // 8h jornada laboral
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+      console.error("JWT_SECRET no está definido en las variables de entorno (loginController)");
+      return res.status(500).json({ error: "Error de configuración del servidor" });
+    }
 
-    // 5. Respuesta limpia: Token + Datos de usuario (sin password)
+    const token = jwt.sign(tokenPayload, secret, { expiresIn: "8h" });
+
     res.json({
       token,
       user: {
         email: user.email,
         name: user.name,
-        role: user.role
+        role: user.role,
       },
-      message: 'Bienvenido al sistema'
+      message: "Bienvenido al sistema",
     });
-
   } catch (err) {
-    console.error('Error crítico en login:', err); // Log interno detallado
-    res.status(500).json({ error: 'Error procesando la solicitud' }); // Mensaje seguro al cliente
+    console.error("Error crítico en login:", err);
+    res.status(500).json({ error: "Error procesando la solicitud" });
   }
 };
+
+export default loginController;
+
 
 
 const getUserByIdController = async (req, res) => {

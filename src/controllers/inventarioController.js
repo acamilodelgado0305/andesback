@@ -1,4 +1,5 @@
-// src/controllers/inventarioController.js
+// src/models/inventarioModel.js
+import pool from '../database.js';
 import {
   createInventarioItem,
   getInventarioItems,
@@ -54,19 +55,31 @@ const createInventarioController = async (req, res) => {
 };
 
 // Obtener los items de inventario del usuario autenticado
-const getInventarioController = async (req, res) => {
-  const user_id = req.userId; // Obtener el ID del usuario autenticado
-
-  if (!user_id) {
-    return res.status(401).json({ error: 'Acceso denegado. No autenticado.' });
-  }
-
+export const getInventarioController = async (req, res) => {
   try {
-    const inventarioItems = await getInventarioItems(user_id); // Obtener solo los ítems de este usuario
-    res.status(200).json(inventarioItems);
+    // Datos del usuario autenticado desde el middleware
+    const userId = req.user?.id; // viene de decoded.sub
+
+    if (!userId) {
+      return res.status(401).json({ message: "Usuario no autenticado" });
+    }
+
+    const query = `
+      SELECT *
+      FROM inventario
+      WHERE user_id = $1
+      ORDER BY id DESC
+    `;
+    const params = [userId];
+
+    const result = await pool.query(query, params);
+
+    return res.status(200).json(result.rows);
   } catch (err) {
-    console.error('Error obteniendo items de inventario:', err);
-    res.status(500).json({ error: 'Error interno del servidor al obtener items de inventario.' });
+    console.error("Error obteniendo items de inventario:", err);
+    return res.status(500).json({
+      message: "Error interno del servidor al obtener el inventario",
+    });
   }
 };
 
@@ -203,7 +216,6 @@ const getInventarioBySpecificUserController = async (req, res) => {
 
 export {
   createInventarioController,
-  getInventarioController,
   getInventarioByIdController,
   updateInventarioController,
   deleteInventarioController,

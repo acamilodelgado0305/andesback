@@ -8,7 +8,8 @@ import {
   deleteInventarioController,    // Renombrado
   getInventarioBySpecificUserController
 } from '../controllers/inventarioController.js'; // Actualizada la ruta y los nombres importados
-//import verifyToken from '../authMiddleware.js'; // Importar el middleware de autenticación
+
+import { authMiddleware } from '../middlewares/authMiddleware.js';
 
 const router = express.Router();
 
@@ -19,7 +20,7 @@ const router = express.Router();
 // Rutas para manejar items de inventario
 router.post('/inventario', createInventarioController);      // Crear un nuevo item de inventario
 router.post('/inventario', createInventarioController);      // Crear un nuevo item de inventario
-router.get('/inventario', getInventarioController);         // Obtener todos los items de inventario del usuario
+router.get('/inventario', authMiddleware,getInventarioController);         // Obtener todos los items de inventario del usuario
 router.get('/inventario/:id', getInventarioByIdController); // Obtener un item de inventario por su ID
 router.put('/inventario/:id', updateInventarioController);  // Actualizar un item de inventario por su ID
 router.delete('/inventario', deleteInventarioController); // Eliminar un item de inventario por su ID
