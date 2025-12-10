@@ -17,6 +17,8 @@ import {
   deleteStudentDocumentController
 } from '../controllers/studentController.js';
 
+import { authMiddleware } from '../middlewares/authMiddleware.js';
+
 import { getGradesByStudentIdController, getGradesByStudentDocumentController } from '../controllers/GradesController.js';
 
 import { uploadStudentsController } from "../controllers/uploadStudentsController.js";
@@ -40,6 +42,8 @@ router.get('/students/type/:tipo', getStudentsByProgramTypeController);
 // GET /api/students/type/bachillerato
 // GET /api/students/type/tecnicos
 
+router.get('/students', authMiddleware, getStudentsController);
+
 // GET: Obtener estudiantes filtrados por ID de programa específico
 // NOTA: Esta ruta también debe ir ANTES de '/students/:id'.
 router.get('/students/program/:programaId', getStudentsByProgramaIdController);
@@ -48,8 +52,7 @@ router.get('/students/program/:programaId', getStudentsByProgramaIdController);
 
 router.get('/students/document/:numero_documento', getStudentByDocumentController);
 
-// GET: Obtener todos los estudiantes (esta debe ir después de las rutas estáticas)
-router.get('/students', getStudentsController);
+// GET: Obtener todos los estudiantes (esta debe ir después de las rutas estáticas
 
 // GET: Obtener un estudiante por su ID
 // Esta ruta debe ir DESPUÉS de las rutas estáticas como /students/type/:tipo

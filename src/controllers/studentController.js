@@ -188,12 +188,34 @@ export const createStudentController = async (req, res) => {
 // =======================================================
 export const getStudentsController = async (req, res) => {
   try {
+    // 1. Obtener datos del usuario desde el Token (inyectado por authMiddleware)
+    const userId = req.user?.id;
+    const userRole = req.user?.role; // Asegúrate de que tu JWT incluya el 'role'
+
+    if (!userId) {
+      return res.status(401).json({ error: "Usuario no autenticado." });
+    }
+
+    console.log(`Consultando estudiantes. Usuario: ${userId}, Rol: ${userRole}`);
+
+    // 2. Construcción dinámica de la consulta
+    let whereClause = "";
+    const queryParams = [];
+
+    // LÓGICA DE SEGURIDAD:
+    // Si NO es admin ni superadmin, filtramos obligatoriamente por su ID
+    const isAdmin = userRole === 'admin' || userRole === 'superadmin';
+    
+    if (!isAdmin) {
+      whereClause = "WHERE s.coordinador_id = $1";
+      queryParams.push(userId);
+    }
+
     const query = `
       SELECT
         s.*,
         u.name AS coordinador_nombre,
-
-        -- ✅ Lista de programas asociados (muchos a muchos)
+        -- Lista de programas asociados
         COALESCE(
           json_agg(
             json_build_object(
@@ -212,13 +234,15 @@ export const getStudentsController = async (req, res) => {
       LEFT JOIN estudiante_programas ep ON s.id = ep.estudiante_id
       LEFT JOIN programas p ON ep.programa_id = p.id
 
+      ${whereClause} -- 👈 Aquí se inyecta el filtro si no es admin
+
       GROUP BY
         s.id, u.name
       ORDER BY
-        s.nombre, s.apellido;
+        s.created_at DESC; -- Ordenar por los más recientes
     `;
 
-    const { rows } = await pool.query(query);
+    const { rows } = await pool.query(query, queryParams);
 
     return res.status(200).json(rows);
   } catch (err) {
