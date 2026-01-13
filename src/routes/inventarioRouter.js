@@ -1,4 +1,5 @@
 import express from 'express';
+import multer from 'multer'; // 1. Importamos Multer
 import {
     createInventarioItem,
     getInventario,
@@ -7,34 +8,40 @@ import {
     getInventarioByUserId
 } from '../controllers/inventarioController.js';
 
-// Importa tu middleware de verificación de token
-// Asegúrate de que la ruta sea correcta (authMiddleware o verifyToken según tu proyecto)
-import { authMiddleware } from '../middlewares/authMiddleware.js'; 
+import { authMiddleware } from '../middlewares/authMiddleware.js';
 
 const router = express.Router();
 
+// --- CONFIGURACIÓN DE MULTER ---
+// Usamos memoryStorage para tener el Buffer disponible para Google Cloud
+const storage = multer.memoryStorage();
+const upload = multer({
+    storage: storage,
+    limits: { fileSize: 10 * 1024 * 1024 } // Opcional: Límite de 5MB por foto
+});
+
 // --- MIDDLEWARE DE PROTECCIÓN GLOBAL ---
-// Todas las rutas debajo de esta línea requieren Token válido
 router.use(authMiddleware);
 
 // --- RUTAS DE INVENTARIO ---
 
-// Obtener todos los productos del usuario logueado
+// Obtener todos los productos (Sin cambios)
 router.get('/inventario', getInventario);
 
-// Crear nuevo producto
-router.post('/inventario', createInventarioItem);
+// Crear nuevo producto (Agregamos upload.single('imagen'))
+// 'imagen' es el nombre del campo (key) que debes usar en Postman/React
+router.post('/inventario', upload.single('imagen'), createInventarioItem);
 
-// Actualizar producto por ID
-router.put('/inventario/:id', updateInventarioItem);
+// Actualizar producto por ID (Agregamos upload.single('imagen'))
+router.put('/inventario/:id', upload.single('imagen'), updateInventarioItem);
 
-// Eliminar producto por ID (Individual)
+// Eliminar producto por ID (Sin cambios)
 router.delete('/inventario/:id', deleteInventarioItem);
 
-// Eliminar múltiples productos (Opcional, enviando array de IDs en body)
+// Eliminar múltiples productos (Sin cambios)
 router.delete('/inventario/', deleteInventarioItem);
 
-// Ruta para admin o casos especiales (ver inventario de otro usuario)
+// Ruta para admin (Sin cambios)
 router.get('/user/:userId', getInventarioByUserId);
 
 export default router;
