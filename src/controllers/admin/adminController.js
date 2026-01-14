@@ -21,10 +21,10 @@ export const getSubscriptionsOverviewController = async (req, res) => {
                 u.name,
                 u.email,
                 p.name AS plan_name,
+                p.modules, -- <--- AGREGADO: Para ver qué permisos tiene
                 s.end_date,
-                s.amount_paid, -- Monto del último pago
+                s.amount_paid,
                 s.start_date,
-                -- NUEVO: Subconsulta para sumar todos los pagos del usuario
                 (
                     SELECT SUM(s_sum.amount_paid)
                     FROM subscriptions s_sum
@@ -57,10 +57,10 @@ export const getClientDetailsController = async (req, res) => {
         if (userResult.rows.length === 0) {
             return res.status(404).json({ error: 'Cliente no encontrado.' });
         }
-        
+
         const historyQuery = 'SELECT * FROM subscriptions WHERE user_id = $1 ORDER BY start_date DESC';
         const historyResult = await pool.query(historyQuery, [userId]);
-        
+
         res.status(200).json({
             ...userResult.rows[0],
             subscription_history: historyResult.rows
@@ -94,7 +94,7 @@ export const createSubscriptionController = async (req, res) => {
             RETURNING *;
         `;
         const result = await client.query(query, [userId, planName, amountPaid, durationMonths, description, startDate.format('YYYY-MM-DD'), endDate.format('YYYY-MM-DD')]);
-        
+
         await client.query('COMMIT');
         res.status(201).json(result.rows[0]);
     } catch (err) {
@@ -199,7 +199,7 @@ export const renewSubscriptionController = async (req, res) => {
             endDate.format('YYYY-MM-DD'),
             description
         ]);
-        
+
         await client.query('COMMIT');
         res.status(201).json(result.rows[0]);
 
@@ -219,14 +219,131 @@ export const renewSubscriptionController = async (req, res) => {
  * @description Obtiene todos los planes de suscripción activos.
  * @name getPlansController
  */
+// En adminController.js
 export const getPlansController = async (req, res) => {
     try {
-        // Obtenemos solo los planes activos y los ordenamos por nombre
-        const query = "SELECT id, name, price, duration_months FROM plans WHERE is_active = TRUE ORDER BY name";
+        // AGREGADO: Traer la columna 'modules' y 'description'
+        const query = "SELECT id, name, price, duration_months, description, modules FROM plans WHERE is_active = TRUE ORDER BY name";
         const result = await pool.query(query);
         res.status(200).json(result.rows);
     } catch (err) {
         console.error('Error al obtener los planes:', err);
         res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+};
+
+
+// ... (Tus otros controladores arriba)
+
+// ==========================================
+// 📦 CRUD DE PLANES
+// ==========================================
+
+/**
+ * @description Crear un nuevo plan con sus módulos permitidos.
+ */
+export const createPlanController = async (req, res) => {
+    const { name, price, duration_months, description, modules } = req.body;
+
+    // Validación básica
+    if (!name || !price || !duration_months) {
+        return res.status(400).json({ error: "Nombre, precio y duración son obligatorios." });
+    }
+
+    // Validar que modules sea un array (aunque sea vacío)
+    const modulesArray = Array.isArray(modules) ? modules : [];
+
+    const client = await pool.connect();
+    try {
+        const query = `
+            INSERT INTO plans (name, price, duration_months, description, modules, is_active)
+            VALUES ($1, $2, $3, $4, $5, TRUE)
+            RETURNING *;
+        `;
+        const values = [name, price, duration_months, description, modulesArray];
+
+        const result = await client.query(query, values);
+        res.status(201).json(result.rows[0]);
+    } catch (err) {
+        console.error("Error creando plan:", err);
+        if (err.code === '23505') { // Código de duplicado en Postgres
+            return res.status(409).json({ error: "Ya existe un plan con ese nombre." });
+        }
+        res.status(500).json({ error: "Error interno al crear el plan." });
+    } finally {
+        client.release();
+    }
+};
+
+/**
+ * @description Actualizar un plan existente (Precio, Módulos, etc.)
+ */
+export const updatePlanController = async (req, res) => {
+    const { id } = req.params;
+    const { name, price, duration_months, description, modules } = req.body;
+
+    const client = await pool.connect();
+    try {
+        const query = `
+            UPDATE plans 
+            SET 
+                name = COALESCE($1, name),
+                price = COALESCE($2, price),
+                duration_months = COALESCE($3, duration_months),
+                description = COALESCE($4, description),
+                modules = COALESCE($5, modules)
+            WHERE id = $6
+            RETURNING *;
+        `;
+        // Nota: COALESCE permite que si envías algo null, mantenga el valor anterior
+        const values = [name, price, duration_months, description, modules, id];
+
+        const result = await client.query(query, values);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Plan no encontrado." });
+        }
+
+        res.status(200).json(result.rows[0]);
+    } catch (err) {
+        console.error("Error actualizando plan:", err);
+        res.status(500).json({ error: "Error interno al actualizar." });
+    } finally {
+        client.release();
+    }
+};
+
+/**
+ * @description Activar o Desactivar un plan (Soft Delete).
+ */
+export const togglePlanStatusController = async (req, res) => {
+    const { id } = req.params;
+    const { is_active } = req.body; // true o false
+
+    try {
+        const query = "UPDATE plans SET is_active = $1 WHERE id = $2 RETURNING *";
+        const result = await pool.query(query, [is_active, id]);
+
+        if (result.rows.length === 0) return res.status(404).json({ error: "Plan no encontrado" });
+
+        res.status(200).json(result.rows[0]);
+    } catch (err) {
+        console.error("Error cambiando estado del plan:", err);
+        res.status(500).json({ error: "Error interno." });
+    }
+};
+
+/**
+ * @description Obtener TODOS los planes (incluso los inactivos) para gestión.
+ * Nota: Reemplaza o ajusta tu 'getPlansController' anterior si solo traía los activos.
+ */
+export const getAllPlansAdminController = async (req, res) => {
+    try {
+        // Traemos todos para que el admin pueda reactivar planes viejos
+        const query = "SELECT * FROM plans ORDER BY id ASC";
+        const result = await pool.query(query);
+        res.status(200).json(result.rows);
+    } catch (err) {
+        res.status(500).json({ error: "Error cargando planes." });
     }
 };

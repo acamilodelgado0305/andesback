@@ -37,42 +37,103 @@ const loginController = async (req, res) => {
   const { email, password } = req.body;
 
   try {
+    // 1. Validar Usuario existente
     const user = await getUserByEmail(email);
 
     if (!user) {
       return res.status(401).json({ error: "Credenciales inválidas" });
     }
 
+    // 2. Validar Contraseña
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(401).json({ error: "Credenciales inválidas" });
     }
 
+    // =================================================================
+    // 3. NUEVA LÓGICA: Determinar Módulos Permitidos (RBAC + ABAC)
+    // =================================================================
+
+    // Lista maestra de módulos para Superadmins (acceso total)
+    // Asegúrate de usar las mismas claves (keys) que pusiste en RootLayout.jsx
+    const MASTER_MODULES = [
+      'POS',
+      'ACADEMICO',
+      'INVENTARIO',
+      'PERSONAS',
+      'MOVIMIENTOS',
+      'ADMIN',
+      'GENERACION'
+    ];
+
+    let allowedModules = [];
+
+    // CASO A: Es SuperAdmin -> Tiene acceso a todo sin consultar suscripción
+    if (user.role === 'superadmin') {
+      allowedModules = MASTER_MODULES;
+    }
+    // CASO B: Es Usuario Normal -> Depende de su suscripción activa
+    else {
+      // Consultamos si tiene una suscripción 'active' y que no haya vencido hoy
+      const subQuery = `
+        SELECT p.modules
+        FROM subscriptions s
+        INNER JOIN plans p ON s.plan_id = p.id
+        WHERE s.user_id = $1 
+          AND s.status = 'active' 
+          AND s.end_date >= CURRENT_DATE 
+        ORDER BY s.end_date DESC 
+        LIMIT 1
+      `;
+
+      const subResult = await pool.query(subQuery, [user.id]);
+      const subscription = subResult.rows[0];
+
+      if (subscription && subscription.modules) {
+        allowedModules = subscription.modules;
+      } else {
+        // Opción: Dejarlo entrar pero sin módulos (verá todo vacío y alerta de pago)
+        // O bloquearlo aquí con un return res.status(403)...
+        allowedModules = [];
+        console.log(`Usuario ${user.email} se logueó sin suscripción activa.`);
+      }
+    }
+
+    // =================================================================
+    // 4. Generación del Token
+    // =================================================================
+
     const tokenPayload = {
-      sub: user.id,
+      sub: user.id,          // Estándar JWT para el ID del sujeto
+      id: user.id,           // Redundancia útil para el front
       name: user.name,
-      role: user.role,
+      role: user.role,       // RBAC
       bid: user.business_id,
-      scope: user.app,
+      scope: user.app,       // Legacy (si lo sigues usando)
+      modules: allowedModules // <--- ¡AQUÍ VIAJAN LOS PERMISOS!
     };
 
     const secret = process.env.JWT_SECRET;
     if (!secret) {
-      console.error("JWT_SECRET no está definido en las variables de entorno (loginController)");
-      return res.status(500).json({ error: "Error de configuración del servidor" });
+      console.error("JWT_SECRET no definido");
+      return res.status(500).json({ error: "Error interno del servidor" });
     }
 
     const token = jwt.sign(tokenPayload, secret, { expiresIn: "8h" });
 
+    // 5. Respuesta al Frontend
     res.json({
       token,
       user: {
+        id: user.id,
         email: user.email,
         name: user.name,
         role: user.role,
+        modules: allowedModules, // Enviamos los módulos también en el JSON para acceso rápido
       },
       message: "Bienvenido al sistema",
     });
+
   } catch (err) {
     console.error("Error crítico en login:", err);
     res.status(500).json({ error: "Error procesando la solicitud" });

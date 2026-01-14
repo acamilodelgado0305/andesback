@@ -6,7 +6,11 @@ import {
     createSubscriptionController,
     getSubscriptionExpirationController,
     renewSubscriptionController,
-    getPlansController
+    getPlansController,
+    createPlanController,
+    updatePlanController,
+    togglePlanStatusController,
+    getAllPlansAdminController
 
 } from '../../controllers/admin/adminController.js';
 
@@ -26,6 +30,12 @@ router.get('/subscriptions/expiration/:userId', getSubscriptionExpirationControl
 router.get('/client-details/:userId', getClientDetailsController);
 router.post('/subscriptions', createSubscriptionController);
 router.post('/subscriptions/renew', renewSubscriptionController);
+
+
+router.get('/plans-admin', getAllPlansAdminController); // Ver todos (activos e inactivos)
+router.post('/plans', createPlanController);            // Crear
+router.put('/plans/:id', updatePlanController);         // Editar
+router.patch('/plans/:id/status', togglePlanStatusController);
 
 
 export default router;
