@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import { createUser, getUserByEmail } from '../models/userModel.js';
 import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
+import { z } from 'zod'; // Recomendado: validación estricta
 import pool from '../database.js'; // Conexión a la base de datos
 
 dotenv.config();
@@ -9,26 +10,73 @@ dotenv.config();
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secreto_seguro';
 
 // Registrar usuario
-const registerController = async (req, res) => {
-  const { email, password, name } = req.body;
+const registerSchema = z.object({
+  name: z.string().min(2, "El nombre es muy corto"),
+  email: z.string().email("Email inválido"),
+  password: z.string().min(6, "La contraseña debe tener mínimo 6 caracteres"),
+  // Opcionales por si quieres vincularlo de una vez, sino serán null/default
+  business_id: z.number().optional(),
+  role: z.enum(['user', 'admin', 'superadmin']).optional().default('user')
+});
 
-  if (!email || !password || !name) {
+const registerController = async (req, res) => {
+  // 1. Validación de datos de entrada (Zod)
+  const validation = registerSchema.safeParse(req.body);
+
+  if (!validation.success) {
     return res.status(400).json({
-      error: 'Email, contraseña y nombre son requeridos'
+      error: 'Datos inválidos',
+      details: validation.error.errors.map(e => e.message)
     });
   }
 
+  const { name, email, password, business_id, role } = validation.data;
+
   try {
-    const existingUser = await getUserByEmail(email);
-    if (existingUser) {
-      return res.status(400).json({ error: 'El usuario ya existe' });
+    // 2. Verificar si el usuario ya existe
+    const userCheck = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+    if (userCheck.rows.length > 0) {
+      return res.status(409).json({ error: 'El correo electrónico ya está registrado' });
     }
 
-    const user = await createUser(email, password, name);
-    res.status(201).json(user);
+    // 3. Encriptar contraseña (Bcrypt)
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    // 4. Insertar Usuario
+    // Usamos COALESCE o valores por defecto definidos en tu SQL
+    const insertQuery = `
+      INSERT INTO users (name, email, password, role, business_id, app, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, 'pos_general', NOW(), NOW())
+      RETURNING id, name, email, role, business_id
+    `;
+
+    const result = await pool.query(insertQuery, [
+      name,
+      email,
+      hashedPassword,
+      role,       // Por defecto 'user' si no se envía
+      business_id || null // NULL si no se envía
+    ]);
+
+    const newUser = result.rows[0];
+
+    // 5. Respuesta Exitosa
+    // No generamos token aquí obligatoriamente, ya que el usuario quizás
+    // no deba entrar hasta que tú le asignes el plan manualmente.
+    res.status(201).json({
+      message: 'Usuario registrado correctamente. Pendiente asignación de plan.',
+      user: {
+        id: newUser.id,
+        name: newUser.name,
+        email: newUser.email,
+        role: newUser.role
+      }
+    });
+
   } catch (err) {
-    console.error('Error registrando usuario', err);
-    res.status(500).json({ error: 'Error registrando usuario' });
+    console.error('Error en registro:', err);
+    res.status(500).json({ error: 'Error interno del servidor al crear usuario' });
   }
 };
 
