@@ -23,7 +23,7 @@ const __dirname = path.dirname(__filename);
 // Controlador para generar un CERTIFICADO
 // //////////////////////////////////////////////////////////////////////////////////
 const generarCertificadoController = async (req, res) => {
-    const { nombre, numeroDocumento, tipoDocumento } = req.body;
+    const { nombre, numeroDocumento, tipoDocumento, intensidadHoraria } = req.body;
 
     if (!nombre || !numeroDocumento || !tipoDocumento) {
         return res.status(400).json({ error: 'Nombre, número de documento y tipo de documento son requeridos.' });
@@ -74,6 +74,11 @@ const generarCertificadoController = async (req, res) => {
             width: doc.page.width,
         });
 
+        doc.fontSize(14).font('Helvetica').text(`${intensidadHoraria}`, 129, 328, {
+            align: 'center',
+            width: doc.page.width,
+        });
+
         doc.fontSize(14).text(fechaActual, -130, 618, {
             align: 'center',
             width: doc.page.width,
@@ -117,7 +122,7 @@ const generarCertificadoController = async (req, res) => {
 // Controlador para generar un CARNET
 // //////////////////////////////////////////////////////////////////////////////////
 const generarCarnetController = async (req, res) => {
-    const { nombre, numeroDocumento, tipoDocumento } = req.body;
+    const { nombre, numeroDocumento, tipoDocumento, intensidadHoraria } = req.body;
     const fotoFile = req.file;
 
     try {
@@ -158,6 +163,7 @@ const generarCarnetController = async (req, res) => {
         doc.fillColor('black');
         doc.fontSize(7).text(nombre, 8, 60, { width: 150, align: 'center' });
         doc.fontSize(7).text(tipoDocumento, 55, 73, { width: 150, align: 'left' });
+        doc.fontSize(7).text(intensidadHoraria, 92, 106, { width: 150, align: 'left' });
         doc.fontSize(7).text(numeroDocumento, 75, 73, { width: 150, align: 'left' });
 
         const fechaActual = new Date().toLocaleDateString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '/');
