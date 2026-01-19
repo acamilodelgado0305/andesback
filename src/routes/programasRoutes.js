@@ -8,21 +8,27 @@ import {
   deletePrograma,
 } from "../controllers/programasController.js";
 
+
+import { authMiddleware } from '../middlewares/authMiddleware.js';
+
 const router = express.Router();
 
 // Crear programa
-router.post("/programs", createPrograma);
+
+
+router.get("/programas", getProgramas);
+router.get("/programas/:id", getProgramaById);
 
 // Listar programas (con filtros opcionales ?tipo_programa=...&activo=true/false)
-router.get("/programs", getProgramas);
 
+router.post("/programas", createPrograma);
 // Obtener programa por ID
-router.get("/programs/:id", getProgramaById);
+
 
 // Actualizar programa
-router.put("/programs/:id", updatePrograma);
+router.put("/programas/:id", updatePrograma);
 
 // Desactivar programa (borrado lógico)
-router.delete("/programs/:id", deletePrograma);
+router.delete("/programas/:id", deletePrograma);
 
 export default router;
