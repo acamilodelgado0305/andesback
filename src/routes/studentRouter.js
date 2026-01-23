@@ -1,6 +1,8 @@
 import express from 'express';
 import {
-  createStudentController,
+
+  createStudentAuthenticated, // Nuevo controlador seguro
+  createStudentPublic,
   getStudentsController,
   getStudentByIdController,
   updateStudentController,
@@ -31,9 +33,14 @@ const router = express.Router();
 // =======================================================
 // RUTAS DE ESTUDIANTES
 // =======================================================
-
+router.post('/public/students', createStudentPublic);
 // POST: Crear un nuevo estudiante
-router.post('/students', createStudentController);
+router.post('/students', authMiddleware, createStudentAuthenticated);
+
+
+// 2. Ruta PÚBLICA (Para usar desde landing pages o formularios externos)
+// No requiere token. Requiere enviar 'coordinador_id' en el body.
+
 
 // GET: Obtener estudiantes filtrados por TIPO de programa (bachillerato o tecnicos)
 // NOTA: Esta ruta debe ir ANTES de '/students/:id' para evitar conflictos.

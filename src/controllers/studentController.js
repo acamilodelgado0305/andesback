@@ -3,72 +3,42 @@ import { uploadStudentDocumentToGCS, deleteStudentDocumentFromGCS } from '../ser
 
 // Helper para manejar errores de forma consistente
 const handleServerError = (res, err, message) => {
-    console.error(message, err);
-    res.status(500).json({
-        error: message,
-        details: process.env.NODE_ENV === 'development' ? err.message : undefined
-    });
+  console.error(message, err);
+  res.status(500).json({
+    error: message,
+    details: process.env.NODE_ENV === 'development' ? err.message : undefined
+  });
 };
 
 // =======================================================
 // LÓGICA DE CREACIÓN (CREATE)
 // =======================================================
-export const createStudentController = async (req, res) => {
+const insertStudentToDB = async (studentData, res) => {
   const {
-    nombre,
-    apellido,
-    email,
-    tipoDocumento,
-    numeroDocumento,
-    lugarExpedicion,
-    fechaNacimiento,
-    lugarNacimiento,
-    telefonoLlamadas,
-    telefonoWhatsapp,
-    simat,
-    pagoMatricula,
-    programasIds,          // 👉 IDs de la tabla PROGRAMAS (array)
-    coordinador_id,
-    modalidad_estudio,
-    ultimo_curso_visto,
-    eps,
-    rh,
-    nombreAcudiente,
-    tipoDocumentoAcudiente,
-    telefonoAcudiente,
-    direccionAcudiente,
-    posibleGraduacion,     // boolean opcional
-  } = req.body;
+    nombre, apellido, email, tipoDocumento, numeroDocumento,
+    lugarExpedicion, fechaNacimiento, lugarNacimiento,
+    telefonoLlamadas, telefonoWhatsapp, simat, pagoMatricula,
+    programasIds, coordinador_id, modalidad_estudio, ultimo_curso_visto,
+    eps, rh, nombreAcudiente, tipoDocumentoAcudiente,
+    telefonoAcudiente, direccionAcudiente, posibleGraduacion
+  } = studentData;
 
-  // ✅ Sanitizar programasIds: a enteros válidos y únicos
+  // 1. Validaciones básicas de integridad
+  if (!coordinador_id) {
+    return res.status(400).json({ error: "El ID del coordinador es obligatorio para crear un estudiante." });
+  }
+
+  // Sanitizar programas
   let sanitizedProgramIds = [];
   if (Array.isArray(programasIds)) {
-    sanitizedProgramIds = [
-      ...new Set(
-        programasIds
-          .map((p) => parseInt(p, 10))
-          .filter((p) => !isNaN(p))
-      ),
-    ];
+    sanitizedProgramIds = [...new Set(programasIds.map(p => parseInt(p, 10)).filter(p => !isNaN(p)))];
   }
 
-  // ✅ Validación de campos obligatorios
-  if (
-    !nombre ||
-    !apellido ||
-    !email ||
-    !numeroDocumento ||
-    !Array.isArray(programasIds) ||
-    sanitizedProgramIds.length === 0
-  ) {
-    return res.status(400).json({
-      error:
-        "Faltan campos obligatorios o el array de programas está vacío o es inválido.",
-    });
+  if (!nombre || !apellido || !email || !numeroDocumento || sanitizedProgramIds.length === 0) {
+    return res.status(400).json({ error: "Faltan campos obligatorios o no hay programas seleccionados." });
   }
 
-  const estadoMatriculaBoolean =
-    pagoMatricula === true || pagoMatricula === "Pagado";
+  const estadoMatriculaBoolean = pagoMatricula === true || pagoMatricula === "Pagado";
   const simatBoolean = simat === true || simat === "Activo";
   const posibleGraduacionBoolean = posibleGraduacion === true;
 
@@ -77,106 +47,118 @@ export const createStudentController = async (req, res) => {
     client = await pool.connect();
     await client.query("BEGIN");
 
+    // 2. Insertar Estudiante
     const studentInsertQuery = `
       INSERT INTO students (
-        nombre,
-        apellido,
-        email,
-        tipo_documento,
-        numero_documento,
-        lugar_expedicion,
-        fecha_nacimiento,
-        lugar_nacimiento,
-        telefono_llamadas,
-        telefono_whatsapp,
-        simat,
-        estado_matricula,
-        coordinador_id,
-        modalidad_estudio,
-        ultimo_curso_visto,
-        eps,
-        rh,
-        nombre_acudiente,
-        tipo_documento_acudiente,
-        telefono_acudiente,
-        direccion_acudiente,
-        posible_graduacion
-      )
-      VALUES (
-        $1, $2, $3, $4, $5, $6,
-        $7, $8, $9, $10,
-        $11, $12, $13, $14,
-        $15, $16, $17, $18, $19,
+        nombre, apellido, email, tipo_documento, numero_documento,
+        lugar_expedicion, fecha_nacimiento, lugar_nacimiento,
+        telefono_llamadas, telefono_whatsapp, simat, estado_matricula,
+        coordinador_id, modalidad_estudio, ultimo_curso_visto,
+        eps, rh, nombre_acudiente, tipo_documento_acudiente,
+        telefono_acudiente, direccion_acudiente, posible_graduacion
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+        $11, $12, $13, $14, $15, $16, $17, $18, $19,
         $20, $21, $22
-      )
-      RETURNING id;
+      ) RETURNING id;
     `;
 
-    const studentResult = await client.query(studentInsertQuery, [
-      nombre,
-      apellido,
-      email,
-      tipoDocumento,
-      numeroDocumento,
-      lugarExpedicion,
-      fechaNacimiento,      // se asume ISO string o date compatible
-      lugarNacimiento,
-      telefonoLlamadas,
-      telefonoWhatsapp,
-      simatBoolean,
-      estadoMatriculaBoolean,
-      coordinador_id || null,
-      modalidad_estudio || null,
-      ultimo_curso_visto || null,
-      eps || null,
-      rh || null,
-      nombreAcudiente || null,
-      tipoDocumentoAcudiente || null,
-      telefonoAcudiente || null,
-      direccionAcudiente || null,
-      posibleGraduacionBoolean,
-    ]);
+    const values = [
+      nombre, apellido, email, tipoDocumento, numeroDocumento,
+      lugarExpedicion, fechaNacimiento, lugarNacimiento,
+      telefonoLlamadas, telefonoWhatsapp, simatBoolean, estadoMatriculaBoolean,
+      coordinador_id, modalidad_estudio || null, ultimo_curso_visto || null,
+      eps || null, rh || null, nombreAcudiente || null, tipoDocumentoAcudiente || null,
+      telefonoAcudiente || null, direccionAcudiente || null, posibleGraduacionBoolean
+    ];
 
+    const studentResult = await client.query(studentInsertQuery, values);
     const newStudentId = studentResult.rows[0].id;
 
-    // 👉 Asociamos TODOS los programas del array limpio
+    // 3. Insertar Programas (Relación M:N)
     if (sanitizedProgramIds.length > 0) {
-      const valuesClauses = sanitizedProgramIds
-        .map((_, index) => `($1, $${index + 2})`)
-        .join(", ");
-
-      const programInsertValues = [newStudentId, ...sanitizedProgramIds];
-
+      const valuesClauses = sanitizedProgramIds.map((_, i) => `($1, $${i + 2})`).join(", ");
       const programAssignQuery = `
         INSERT INTO estudiante_programas (estudiante_id, programa_id)
         VALUES ${valuesClauses};
       `;
-
-      await client.query(programAssignQuery, programInsertValues);
+      await client.query(programAssignQuery, [newStudentId, ...sanitizedProgramIds]);
     }
 
     await client.query("COMMIT");
 
     return res.status(201).json({
-      message: "Estudiante creado exitosamente",
-      studentId: newStudentId,
+      message: "Estudiante registrado exitosamente",
+      studentId: newStudentId
     });
+
   } catch (err) {
     if (client) await client.query("ROLLBACK");
 
-    console.error("Error al crear el estudiante:", err);
+    // Manejo de error de duplicados (Email o Documento)
     if (err.code === "23505") {
-      // Único en email o documento
-      return res.status(409).json({
-        error: "Ya existe un estudiante con ese email o documento.",
+      return res.status(409).json({ error: "Ya existe un estudiante con ese documento o correo electrónico." });
+    }
+
+    console.error("Error BD creando estudiante:", err);
+    return res.status(500).json({ error: "Error interno al procesar el registro." });
+  } finally {
+    if (client) client.release();
+  }
+};
+
+// =======================================================
+// CONTROLADOR 1: Creación Autenticada (Desde Panel)
+// =======================================================
+export const createStudentAuthenticated = async (req, res) => {
+  try {
+    // Obtenemos datos seguros del Token (inyectado por authMiddleware)
+    const userId = req.user.id;
+
+
+    // Lógica de Negocio:
+    // Si es ADMIN, puede especificar otro coordinador en el body.
+    // Si es COORDINADOR, se fuerza su propio ID.
+    let finalCoordinatorId = userId;
+
+
+
+    // Preparamos los datos inyectando el coordinador seguro
+    const studentData = {
+      ...req.body,
+      coordinador_id: finalCoordinatorId
+    };
+
+    // Delegamos al helper
+    return await insertStudentToDB(studentData, res);
+
+  } catch (error) {
+    console.error("Error en createStudentAuthenticated:", error);
+    return res.status(500).json({ error: "Error de servidor en creación autenticada" });
+  }
+};
+
+// =======================================================
+// CONTROLADOR 2: Creación Pública (Formulario Externo)
+// =======================================================
+export const createStudentPublic = async (req, res) => {
+  try {
+    // En el registro público, el coordinador_id DEBE venir en el body
+    // (ej. campo oculto en el formulario o seleccionado por el usuario)
+    if (!req.body.coordinador_id) {
+      // Opcional: Podrías asignar un ID por defecto aquí si lo deseas (ej. ID del admin)
+      // const DEFAULT_PUBLIC_COORD_ID = 1; 
+      return res.status(400).json({
+        error: "Se requiere especificar un código de coordinador o sede para el registro."
       });
     }
 
-    return res
-      .status(500)
-      .json({ error: "Error interno del servidor al crear el estudiante." });
-  } finally {
-    if (client) client.release();
+    // Pasamos los datos directamente
+    return await insertStudentToDB(req.body, res);
+
+  } catch (error) {
+    console.error("Error en createStudentPublic:", error);
+    return res.status(500).json({ error: "Error de servidor en registro público" });
   }
 };
 
@@ -205,7 +187,7 @@ export const getStudentsController = async (req, res) => {
     // LÓGICA DE SEGURIDAD:
     // Si NO es admin ni superadmin, filtramos obligatoriamente por su ID
     const isAdmin = userRole === 'admin' || userRole === 'superadmin';
-    
+
     if (!isAdmin) {
       whereClause = "WHERE s.coordinador_id = $1";
       queryParams.push(userId);
@@ -425,28 +407,28 @@ export const getStudentByIdController = async (req, res) => {
       // ✅ Acudiente
       acudiente: flatStudent.nombre_acudiente
         ? {
-            nombre: flatStudent.nombre_acudiente,
-            tipo_documento: flatStudent.tipo_documento_acudiente,
-            telefono: flatStudent.telefono_acudiente,
-            direccion: flatStudent.direccion_acudiente,
-          }
+          nombre: flatStudent.nombre_acudiente,
+          tipo_documento: flatStudent.tipo_documento_acudiente,
+          telefono: flatStudent.telefono_acudiente,
+          direccion: flatStudent.direccion_acudiente,
+        }
         : null,
 
       // ✅ Coordinador
       coordinador: flatStudent.coordinador_id
         ? {
-            id: flatStudent.coordinador_id,
-            nombre: flatStudent.coordinador_nombre,
-          }
+          id: flatStudent.coordinador_id,
+          nombre: flatStudent.coordinador_nombre,
+        }
         : null,
 
       // ✅ Business
       business: flatStudent.business_id
         ? {
-            id: flatStudent.business_id,
-            name: flatStudent.business_name,
-            profilePictureUrl: flatStudent.business_profile_picture_url,
-          }
+          id: flatStudent.business_id,
+          name: flatStudent.business_name,
+          profilePictureUrl: flatStudent.business_profile_picture_url,
+        }
         : null,
 
       // ✅ Programas Asociados
@@ -473,18 +455,18 @@ export const getStudentByIdController = async (req, res) => {
  * @param {object} res - El objeto de respuesta de Express.
  */
 const getStudentByDocumentController = async (req, res) => {
-    // 1. Obtenemos el número de documento de los parámetros de la URL.
-    const { numero_documento } = req.params;
+  // 1. Obtenemos el número de documento de los parámetros de la URL.
+  const { numero_documento } = req.params;
 
-    // 2. Validación básica para asegurarnos de que el parámetro no esté vacío.
-    if (!numero_documento) {
-        return res.status(400).json({ error: 'El número de documento es requerido.' });
-    }
+  // 2. Validación básica para asegurarnos de que el parámetro no esté vacío.
+  if (!numero_documento) {
+    return res.status(400).json({ error: 'El número de documento es requerido.' });
+  }
 
-    try {
-        // 3. Utilizamos tu query original, pero modificamos el WHERE.
-        //    Buscamos por `s.numero_documento` en lugar de `s.id`.
-        const query = `
+  try {
+    // 3. Utilizamos tu query original, pero modificamos el WHERE.
+    //    Buscamos por `s.numero_documento` en lugar de `s.id`.
+    const query = `
     SELECT
         s.id, s.nombre, s.apellido, s.email, s.tipo_documento,
         s.numero_documento, s.lugar_expedicion, s.fecha_nacimiento,
@@ -523,69 +505,69 @@ const getStudentByDocumentController = async (req, res) => {
         s.id, u.id, b.id;
 `;
 
-        const result = await pool.query(query, [numero_documento]);
+    const result = await pool.query(query, [numero_documento]);
 
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'Estudiante no encontrado con ese número de documento.' });
-        }
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Estudiante no encontrado con ese número de documento.' });
+    }
 
-        const flatStudent = result.rows[0];
+    const flatStudent = result.rows[0];
 
-        // 4. Mantenemos la misma estructura de respuesta para consistencia en la API.
-const studentResponse = {
-    id: flatStudent.id,
-    nombre: flatStudent.nombre,
-    apellido: flatStudent.apellido,
-    email: flatStudent.email,
-    tipo_documento: flatStudent.tipo_documento,
-    numero_documento: flatStudent.numero_documento,
-    lugar_expedicion: flatStudent.lugar_expedicion,
-    fecha_nacimiento: flatStudent.fecha_nacimiento,
-    lugar_nacimiento: flatStudent.lugar_nacimiento,
-    telefono_llamadas: flatStudent.telefono_llamadas,
-    telefono_whatsapp: flatStudent.telefono_whatsapp,
-    telefono: flatStudent.telefono,
-    numero_documento: flatStudent.numero_documento,
-    simat: flatStudent.simat,
-    estado_matricula: flatStudent.estado_matricula,
-    matricula: flatStudent.matricula,
-    modalidad_estudio: flatStudent.modalidad_estudio,
-    ultimo_curso_visto: flatStudent.ultimo_curso_visto,
-    fecha_inscripcion: flatStudent.fecha_inscripcion,
-    fecha_graduacion: flatStudent.fecha_graduacion,
-    activo: flatStudent.activo,
-    eps: flatStudent.eps,
-    rh: flatStudent.rh,
-    documento_url: flatStudent.documento,
-    created_at: flatStudent.created_at,
-    updated_at: flatStudent.updated_at,
-    // ✅ nuevo campo expuesto
-    posible_graduacion: flatStudent.posible_graduacion,
-    acudiente: flatStudent.nombre_acudiente ? {
+    // 4. Mantenemos la misma estructura de respuesta para consistencia en la API.
+    const studentResponse = {
+      id: flatStudent.id,
+      nombre: flatStudent.nombre,
+      apellido: flatStudent.apellido,
+      email: flatStudent.email,
+      tipo_documento: flatStudent.tipo_documento,
+      numero_documento: flatStudent.numero_documento,
+      lugar_expedicion: flatStudent.lugar_expedicion,
+      fecha_nacimiento: flatStudent.fecha_nacimiento,
+      lugar_nacimiento: flatStudent.lugar_nacimiento,
+      telefono_llamadas: flatStudent.telefono_llamadas,
+      telefono_whatsapp: flatStudent.telefono_whatsapp,
+      telefono: flatStudent.telefono,
+      numero_documento: flatStudent.numero_documento,
+      simat: flatStudent.simat,
+      estado_matricula: flatStudent.estado_matricula,
+      matricula: flatStudent.matricula,
+      modalidad_estudio: flatStudent.modalidad_estudio,
+      ultimo_curso_visto: flatStudent.ultimo_curso_visto,
+      fecha_inscripcion: flatStudent.fecha_inscripcion,
+      fecha_graduacion: flatStudent.fecha_graduacion,
+      activo: flatStudent.activo,
+      eps: flatStudent.eps,
+      rh: flatStudent.rh,
+      documento_url: flatStudent.documento,
+      created_at: flatStudent.created_at,
+      updated_at: flatStudent.updated_at,
+      // ✅ nuevo campo expuesto
+      posible_graduacion: flatStudent.posible_graduacion,
+      acudiente: flatStudent.nombre_acudiente ? {
         nombre: flatStudent.nombre_acudiente,
         tipo_documento: flatStudent.tipo_documento_acudiente,
         telefono: flatStudent.telefono_acudiente,
         direccion: flatStudent.direccion_acudiente
-    } : null,
-    coordinador: flatStudent.coordinador_id ? {
+      } : null,
+      coordinador: flatStudent.coordinador_id ? {
         id: flatStudent.coordinador_id,
         nombre: flatStudent.coordinador_nombre
-    } : null,
-    business: flatStudent.business_id ? {
+      } : null,
+      business: flatStudent.business_id ? {
         id: flatStudent.business_id,
         name: flatStudent.business_name,
         profilePictureUrl: flatStudent.business_profile_picture_url
-    } : null,
-    programas_asociados: flatStudent.programas_asociados
-};
+      } : null,
+      programas_asociados: flatStudent.programas_asociados
+    };
 
 
-        res.status(200).json(studentResponse);
+    res.status(200).json(studentResponse);
 
-    } catch (err) {
-        console.error('Error obteniendo estudiante por número de documento:', err);
-        res.status(500).json({ error: 'Error interno del servidor' });
-    }
+  } catch (err) {
+    console.error('Error obteniendo estudiante por número de documento:', err);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
 };
 // =======================================================
 // LÓGICA DE ACTUALIZACIÓN (UPDATE)
@@ -730,72 +712,72 @@ export const updateStudentController = async (req, res) => {
 // LÓGICA DE ELIMINACIÓN (DELETE)
 // =======================================================
 const deleteStudentController = async (req, res) => {
-    const { id } = req.params;
-    if (!id || isNaN(id)) {
-        return res.status(400).json({ error: 'ID de estudiante inválido.' });
+  const { id } = req.params;
+  if (!id || isNaN(id)) {
+    return res.status(400).json({ error: 'ID de estudiante inválido.' });
+  }
+
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN'); // Iniciar transacción
+
+    // 1. Eliminar los pagos asociados al estudiante (¡NUEVO!)
+    await client.query('DELETE FROM pagos WHERE student_id = $1', [id]);
+
+    // 2. Eliminar las relaciones en 'estudiante_programas'
+    await client.query('DELETE FROM estudiante_programas WHERE estudiante_id = $1', [id]);
+
+    // 3. Ahora sí, eliminar el estudiante
+    const result = await client.query('DELETE FROM students WHERE id = $1 RETURNING *', [id]);
+
+    if (result.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Estudiante no encontrado.' });
     }
 
-    let client;
-    try {
-        client = await pool.connect();
-        await client.query('BEGIN'); // Iniciar transacción
+    await client.query('COMMIT'); // Confirmar todos los cambios
+    res.status(200).json({ message: 'Estudiante y todos sus registros asociados han sido eliminados.', student: result.rows[0] });
 
-        // 1. Eliminar los pagos asociados al estudiante (¡NUEVO!)
-        await client.query('DELETE FROM pagos WHERE student_id = $1', [id]);
-
-        // 2. Eliminar las relaciones en 'estudiante_programas'
-        await client.query('DELETE FROM estudiante_programas WHERE estudiante_id = $1', [id]);
-
-        // 3. Ahora sí, eliminar el estudiante
-        const result = await client.query('DELETE FROM students WHERE id = $1 RETURNING *', [id]);
-
-        if (result.rows.length === 0) {
-            await client.query('ROLLBACK');
-            return res.status(404).json({ error: 'Estudiante no encontrado.' });
-        }
-
-        await client.query('COMMIT'); // Confirmar todos los cambios
-        res.status(200).json({ message: 'Estudiante y todos sus registros asociados han sido eliminados.', student: result.rows[0] });
-
-    } catch (err) {
-        if (client) await client.query('ROLLBACK');
-        handleServerError(res, err, 'Error eliminando estudiante.');
-    } finally {
-        if (client) client.release();
-    }
+  } catch (err) {
+    if (client) await client.query('ROLLBACK');
+    handleServerError(res, err, 'Error eliminando estudiante.');
+  } finally {
+    if (client) client.release();
+  }
 };
 
 // =======================================================
 // LÓGICA DE ACTUALIZACIÓN DE ESTADO (PATCH)
 // =======================================================
 const updateEstadoStudentController = async (req, res) => {
-    const { id } = req.params;
-    const { estado_matricula } = req.body; // Debería ser un booleano (true/false)
+  const { id } = req.params;
+  const { estado_matricula } = req.body; // Debería ser un booleano (true/false)
 
-    if (!id || isNaN(id)) {
-        return res.status(400).json({ error: 'ID de estudiante inválido.' });
-    }
-    // Puedes añadir más validación aquí para estado_matricula si es un enum o solo booleano
-    if (typeof estado_matricula !== 'boolean') {
-        return res.status(400).json({ error: 'El estado_matricula debe ser un valor booleano (true/false).' });
-    }
+  if (!id || isNaN(id)) {
+    return res.status(400).json({ error: 'ID de estudiante inválido.' });
+  }
+  // Puedes añadir más validación aquí para estado_matricula si es un enum o solo booleano
+  if (typeof estado_matricula !== 'boolean') {
+    return res.status(400).json({ error: 'El estado_matricula debe ser un valor booleano (true/false).' });
+  }
 
-    try {
-        const result = await pool.query(
-            `UPDATE students
+  try {
+    const result = await pool.query(
+      `UPDATE students
             SET estado_matricula = $1, updated_at = CURRENT_TIMESTAMP
             WHERE id = $2
             RETURNING *`,
-            [estado_matricula, id]
-        );
+      [estado_matricula, id]
+    );
 
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'Estudiante no encontrado.' });
-        }
-        res.status(200).json(result.rows[0]);
-    } catch (err) {
-        handleServerError(res, err, 'Error actualizando estado de matrícula del estudiante.');
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Estudiante no encontrado.' });
     }
+    res.status(200).json(result.rows[0]);
+  } catch (err) {
+    handleServerError(res, err, 'Error actualizando estado de matrícula del estudiante.');
+  }
 };
 
 // =======================================================
@@ -896,40 +878,40 @@ const getStudentsByProgramTypeController = async (req, res) => {
 
 
 export const updatePosibleGraduacionStudentController = async (req, res) => {
-    const { id } = req.params;
-    const { posible_graduacion } = req.body; // boolean
+  const { id } = req.params;
+  const { posible_graduacion } = req.body; // boolean
 
-    if (!id || isNaN(id)) {
-        return res.status(400).json({ error: 'ID de estudiante inválido.' });
-    }
+  if (!id || isNaN(id)) {
+    return res.status(400).json({ error: 'ID de estudiante inválido.' });
+  }
 
-    if (typeof posible_graduacion !== 'boolean') {
-        return res.status(400).json({ error: 'El campo posible_graduacion debe ser boolean (true/false).' });
-    }
+  if (typeof posible_graduacion !== 'boolean') {
+    return res.status(400).json({ error: 'El campo posible_graduacion debe ser boolean (true/false).' });
+  }
 
-    try {
-        const result = await pool.query(
-            `
+  try {
+    const result = await pool.query(
+      `
             UPDATE students
             SET posible_graduacion = $1,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = $2
             RETURNING *;
             `,
-            [posible_graduacion, id]
-        );
+      [posible_graduacion, id]
+    );
 
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'Estudiante no encontrado.' });
-        }
-
-        res.status(200).json({
-            message: 'Estado de posible graduación actualizado correctamente.',
-            student: result.rows[0]
-        });
-    } catch (err) {
-        handleServerError(res, err, 'Error actualizando estado de posible graduación del estudiante.');
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Estudiante no encontrado.' });
     }
+
+    res.status(200).json({
+      message: 'Estado de posible graduación actualizado correctamente.',
+      student: result.rows[0]
+    });
+  } catch (err) {
+    handleServerError(res, err, 'Error actualizando estado de posible graduación del estudiante.');
+  }
 };
 
 export const uploadStudentDocumentController = async (req, res) => {
@@ -1100,10 +1082,10 @@ export const deleteStudentDocumentController = async (req, res) => {
 
 export {
 
-    deleteStudentController,
-    updateEstadoStudentController,
-    // Renombre y consolidación de controladores de filtrado
-    getStudentsByProgramaIdController, // Nuevo controlador para filtrar por ID de programa específico
-    getStudentsByProgramTypeController, // Nuevo controlador para filtrar por tipo de programa (bachillerato/tecnicos)
-    getStudentByDocumentController
+  deleteStudentController,
+  updateEstadoStudentController,
+  // Renombre y consolidación de controladores de filtrado
+  getStudentsByProgramaIdController, // Nuevo controlador para filtrar por ID de programa específico
+  getStudentsByProgramTypeController, // Nuevo controlador para filtrar por tipo de programa (bachillerato/tecnicos)
+  getStudentByDocumentController
 };
