@@ -80,6 +80,61 @@ const registerController = async (req, res) => {
   }
 };
 
+// Lista maestra de módulos para Superadmins (acceso total)
+// Asegúrate de usar las mismas claves (keys) que pusiste en RootLayout.jsx
+const MASTER_MODULES = [
+  'POS',
+  'ACADEMICO',
+  'INVENTARIO',
+  'PERSONAS',
+  'MOVIMIENTOS',
+  'ADMIN',
+  'GENERACION'
+];
+
+const getAllowedModules = async (userId, role) => {
+  if (role === 'superadmin') {
+    return MASTER_MODULES;
+  }
+
+  const subQuery = `
+    SELECT p.modules
+    FROM subscriptions s
+    INNER JOIN plans p ON s.plan_id = p.id
+    WHERE s.user_id = $1 
+      AND s.status = 'active' 
+      AND s.end_date >= CURRENT_DATE 
+    ORDER BY s.end_date DESC 
+    LIMIT 1
+  `;
+
+  const subResult = await pool.query(subQuery, [userId]);
+  const subscription = subResult.rows[0];
+
+  if (subscription && subscription.modules) {
+    return subscription.modules;
+  }
+
+  console.log(`Usuario ${userId} se logueó sin suscripción activa.`);
+  return [];
+};
+
+const getOrganizationsForUser = async (userId) => {
+  const orgQuery = `
+    SELECT o.id, o.name, o.nit, o.logo_url, o.address, ou.is_default
+    FROM organization_users ou
+    INNER JOIN organizations o ON o.id = ou.organization_id
+    WHERE ou.user_id = $1
+    ORDER BY ou.is_default DESC, o.id ASC
+  `;
+
+  const orgResult = await pool.query(orgQuery, [userId]);
+  const organizations = orgResult.rows || [];
+  const activeOrganization = organizations.length > 0 ? organizations[0] : null;
+
+  return { organizations, activeOrganization };
+};
+
 // Iniciar sesión
 const loginController = async (req, res) => {
   const { email, password } = req.body;
@@ -101,54 +156,16 @@ const loginController = async (req, res) => {
     // =================================================================
     // 3. NUEVA LÓGICA: Determinar Módulos Permitidos (RBAC + ABAC)
     // =================================================================
-
-    // Lista maestra de módulos para Superadmins (acceso total)
-    // Asegúrate de usar las mismas claves (keys) que pusiste en RootLayout.jsx
-    const MASTER_MODULES = [
-      'POS',
-      'ACADEMICO',
-      'INVENTARIO',
-      'PERSONAS',
-      'MOVIMIENTOS',
-      'ADMIN',
-      'GENERACION'
-    ];
-
-    let allowedModules = [];
-
-    // CASO A: Es SuperAdmin -> Tiene acceso a todo sin consultar suscripción
-    if (user.role === 'superadmin') {
-      allowedModules = MASTER_MODULES;
-    }
-    // CASO B: Es Usuario Normal -> Depende de su suscripción activa
-    else {
-      // Consultamos si tiene una suscripción 'active' y que no haya vencido hoy
-      const subQuery = `
-        SELECT p.modules
-        FROM subscriptions s
-        INNER JOIN plans p ON s.plan_id = p.id
-        WHERE s.user_id = $1 
-          AND s.status = 'active' 
-          AND s.end_date >= CURRENT_DATE 
-        ORDER BY s.end_date DESC 
-        LIMIT 1
-      `;
-
-      const subResult = await pool.query(subQuery, [user.id]);
-      const subscription = subResult.rows[0];
-
-      if (subscription && subscription.modules) {
-        allowedModules = subscription.modules;
-      } else {
-        // Opción: Dejarlo entrar pero sin módulos (verá todo vacío y alerta de pago)
-        // O bloquearlo aquí con un return res.status(403)...
-        allowedModules = [];
-        console.log(`Usuario ${user.email} se logueó sin suscripción activa.`);
-      }
-    }
+    const allowedModules = await getAllowedModules(user.id, user.role);
 
     // =================================================================
-    // 4. Generación del Token
+    // 4. Organizaciones disponibles para el usuario
+    // =================================================================
+
+    const { organizations, activeOrganization } = await getOrganizationsForUser(user.id);
+
+    // =================================================================
+    // 5. Generación del Token
     // =================================================================
 
     const tokenPayload = {
@@ -158,7 +175,9 @@ const loginController = async (req, res) => {
       role: user.role,       // RBAC
       bid: user.business_id,
       scope: user.app,       // Legacy (si lo sigues usando)
-      modules: allowedModules // <--- ¡AQUÍ VIAJAN LOS PERMISOS!
+      modules: allowedModules, // <--- ¡AQUÍ VIAJAN LOS PERMISOS!
+      organization: activeOrganization,
+      organizations
     };
 
     const secret = process.env.JWT_SECRET;
@@ -169,7 +188,7 @@ const loginController = async (req, res) => {
 
     const token = jwt.sign(tokenPayload, secret, { expiresIn: "8h" });
 
-    // 5. Respuesta al Frontend
+    // 6. Respuesta al Frontend
     res.json({
       token,
       user: {
@@ -178,6 +197,8 @@ const loginController = async (req, res) => {
         name: user.name,
         role: user.role,
         modules: allowedModules, // Enviamos los módulos también en el JSON para acceso rápido
+        organization: activeOrganization,
+        organizations
       },
       message: "Bienvenido al sistema",
     });
@@ -222,4 +243,87 @@ const getUserByIdController = async (req, res) => {
   }
 };
 
-export { registerController, loginController, getUserByIdController };
+const switchOrganizationSchema = z.object({
+  organization_id: z.number().int()
+});
+
+const switchOrganizationController = async (req, res) => {
+  const validation = switchOrganizationSchema.safeParse(req.body);
+  if (!validation.success) {
+    return res.status(400).json({
+      error: 'Datos inválidos',
+      details: validation.error.errors.map(e => e.message)
+    });
+  }
+
+  const { organization_id } = validation.data;
+  const userId = req.user?.id;
+
+  if (!userId) {
+    return res.status(401).json({ error: 'Usuario no autenticado' });
+  }
+
+  try {
+    const membership = await pool.query(
+      'SELECT 1 FROM organization_users WHERE user_id = $1 AND organization_id = $2',
+      [userId, organization_id]
+    );
+
+    if (membership.rows.length === 0) {
+      return res.status(403).json({ error: 'No pertenece a esa organización' });
+    }
+
+    const userResult = await pool.query(
+      'SELECT id, name, email, role, app, business_id FROM users WHERE id = $1',
+      [userId]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    const user = userResult.rows[0];
+    const allowedModules = await getAllowedModules(user.id, user.role);
+    const { organizations } = await getOrganizationsForUser(user.id);
+    const activeOrganization = organizations.find(o => o.id === organization_id) || null;
+
+    const tokenPayload = {
+      sub: user.id,
+      id: user.id,
+      name: user.name,
+      role: user.role,
+      bid: user.business_id,
+      scope: user.app,
+      modules: allowedModules,
+      organization: activeOrganization,
+      organizations
+    };
+
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+      console.error("JWT_SECRET no definido");
+      return res.status(500).json({ error: "Error interno del servidor" });
+    }
+
+    const token = jwt.sign(tokenPayload, secret, { expiresIn: "8h" });
+
+    return res.json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        modules: allowedModules,
+        organization: activeOrganization,
+        organizations
+      },
+      message: "Organización seleccionada"
+    });
+  } catch (err) {
+    console.error("Error cambiando organización:", err);
+    return res.status(500).json({ error: "Error procesando la solicitud" });
+  }
+};
+
+export { registerController, loginController, getUserByIdController, switchOrganizationController };

@@ -16,6 +16,7 @@ import evaluacionesRouter from "./routes/evaluacionesRouter.js"
 import programasRoutes from "./routes/programasRoutes.js"
 import studentAuthRouter from "./routes/studentAuthRoutes.js"
 import dotenv from "dotenv";
+import { tenantResolver } from "./middlewares/tenantResolver.js";
 
 
 dotenv.config();
@@ -58,6 +59,7 @@ app.use('/api', evaluacionesRouter);
 app.use('/api/student-portal', studentAuthRouter);
 
 // Rutas protegidas (requieren autenticación con token)
+app.use("/api", tenantResolver);
 app.use('/api', StudentRouter);
 app.use('/api',  InventarioRouter);
 
