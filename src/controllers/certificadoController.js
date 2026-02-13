@@ -174,7 +174,7 @@ const generarCarnetController = async (req, res) => {
         doc.image(posteriorImageBuffer, 0, 0, { width: doc.page.width, height: doc.page.height });
 
         const fechaVencimiento = new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toLocaleDateString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '/');
-        doc.fillColor('white').fontSize(7).text(fechaVencimiento, 33, 137, { width: 100, align: 'left' });
+        doc.fillColor('black').fontSize(7).text(fechaVencimiento, 33, 137, { width: 100, align: 'left' });
 
         // ==================================================================
         // <-- 1. GENERACIÓN E INCRUSTACIÓN DEL CÓDIGO QR -->
