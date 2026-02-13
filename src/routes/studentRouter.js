@@ -44,68 +44,61 @@ router.post('/students', authMiddleware, createStudentAuthenticated);
 
 // GET: Obtener estudiantes filtrados por TIPO de programa (bachillerato o tecnicos)
 // NOTA: Esta ruta debe ir ANTES de '/students/:id' para evitar conflictos.
-router.get('/students/type/:tipo', getStudentsByProgramTypeController);
-// Ejemplo de uso:
-// GET /api/students/type/bachillerato
-// GET /api/students/type/tecnicos
+router.get('/students/type/:tipo', authMiddleware, getStudentsByProgramTypeController);
 
 router.get('/students', authMiddleware, getStudentsController);
 
 // GET: Obtener estudiantes filtrados por ID de programa específico
 // NOTA: Esta ruta también debe ir ANTES de '/students/:id'.
-router.get('/students/program/:programaId', getStudentsByProgramaIdController);
-// Ejemplo de uso:
-// GET /api/students/program/1 (asumiendo que 1 es el ID de un programa)
+router.get('/students/program/:programaId', authMiddleware, getStudentsByProgramaIdController);
 
-router.get('/students/document/:numero_documento', getStudentByDocumentController);
-
-// GET: Obtener todos los estudiantes (esta debe ir después de las rutas estáticas
+router.get('/students/document/:numero_documento', authMiddleware, getStudentByDocumentController);
 
 // GET: Obtener un estudiante por su ID
 // Esta ruta debe ir DESPUÉS de las rutas estáticas como /students/type/:tipo
 // para que 'type' o 'program' no sean interpretados como un ID.
-router.get('/students/:id', getStudentByIdController);
-
+router.get('/students/:id', authMiddleware, getStudentByIdController);
 
 // PUT: Actualizar el estado de matrícula de un estudiante por su ID
-// NOTA: Ruta específica, idealmente antes de la ruta PUT genérica si el orden importa
-router.put('/students/status_matricula/:id', updateEstadoStudentController);
+router.put('/students/status_matricula/:id', authMiddleware, updateEstadoStudentController);
 
 // PUT: Actualizar un estudiante por su ID (todos los campos)
-router.put('/students/:id', updateStudentController);
+router.put('/students/:id', authMiddleware, updateStudentController);
 
 // DELETE: Eliminar un estudiante por su ID
-router.delete('/students/:id', deleteStudentController);
+router.delete('/students/:id', authMiddleware, deleteStudentController);
 
 // POST: Subir archivo de estudiantes
-router.post('/upload-students', upload.single('file'), uploadStudentsController);
+router.post('/upload-students', authMiddleware, upload.single('file'), uploadStudentsController);
 
-router.get('/students/coordinator/:coordinatorId', getStudentsByCoordinatorIdController);
+router.get('/students/coordinator/:coordinatorId', authMiddleware, getStudentsByCoordinatorIdController);
 
 
 // =======================================================
-// RUTAS DE CALIFICACIONES (GRADES) - (ya las tenías bien)
+// RUTAS DE CALIFICACIONES (GRADES)
 // =======================================================
 
 // GET: Obtener calificaciones de un estudiante por su ID
-router.get('/grades/students/:id', getGradesByStudentIdController);
+router.get('/grades/students/:id', authMiddleware, getGradesByStudentIdController);
 
 // GET: Obtener calificaciones de un estudiante por su número de documento
-router.get('/grades/student/:numero_documento', getGradesByStudentDocumentController);
+router.get('/grades/student/:numero_documento', authMiddleware, getGradesByStudentDocumentController);
 
 // PATCH /students/:id/posible-graduacion
-router.patch('/students/:id/posible-graduacion', updatePosibleGraduacionStudentController);
+router.patch('/students/:id/posible-graduacion', authMiddleware, updatePosibleGraduacionStudentController);
 
 router.post(
   "/students/:id/document",
+  authMiddleware,
   uploadStudentDocument.single("document"),
   uploadStudentDocumentController
 );
 
-// routes/studentRoutes.js
-router.get("/students/:id/documents", getStudentDocumentsController);
-// routes/studentRoutes.js
-router.delete("/students/:studentId/documents/:documentId", deleteStudentDocumentController);
+// GET: Obtener documentos de un estudiante
+router.get("/students/:id/documents", authMiddleware, getStudentDocumentsController);
+
+// DELETE: Eliminar documento de un estudiante
+router.delete("/students/:studentId/documents/:documentId", authMiddleware, deleteStudentDocumentController);
 
 
 

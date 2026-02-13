@@ -166,32 +166,59 @@ export const createStudentPublic = async (req, res) => {
 
 
 // =======================================================
-// LÓGICA DE OBTENCIÓN (READ) - Todos los estudiantes
+// LÓGICA DE OBTENCIÓN (READ) - Estudiantes por organización y rol
 // =======================================================
 export const getStudentsController = async (req, res) => {
   try {
     // 1. Obtener datos del usuario desde el Token (inyectado por authMiddleware)
     const userId = req.user?.id;
-    const userRole = req.user?.role; // Asegúrate de que tu JWT incluya el 'role'
+    const userRole = req.user?.role;
+    const activeOrganization = req.user?.raw?.organization;
 
     if (!userId) {
       return res.status(401).json({ error: "Usuario no autenticado." });
     }
 
-    console.log(`Consultando estudiantes. Usuario: ${userId}, Rol: ${userRole}`);
+    console.log(`Consultando estudiantes. Usuario: ${userId}, Rol: ${userRole}, Org: ${activeOrganization?.id || 'ninguna'}`);
 
     // 2. Construcción dinámica de la consulta
-    let whereClause = "";
+    const whereClauses = [];
     const queryParams = [];
+    let paramIndex = 1;
 
-    // LÓGICA DE SEGURIDAD:
-    // Si NO es admin ni superadmin, filtramos obligatoriamente por su ID
     const isAdmin = userRole === 'admin' || userRole === 'superadmin';
 
-    if (!isAdmin) {
-      whereClause = "WHERE s.coordinador_id = $1";
-      queryParams.push(userId);
+    // ===================================================================
+    // FILTRO POR ORGANIZACIÓN:
+    // Si el usuario tiene una organización activa, solo traemos estudiantes
+    // cuyos coordinadores pertenezcan a esa organización.
+    // ===================================================================
+    if (activeOrganization?.id) {
+      whereClauses.push(`
+        s.coordinador_id IN (
+          SELECT ou.user_id 
+          FROM organization_users ou 
+          WHERE ou.organization_id = $${paramIndex}
+        )
+      `);
+      queryParams.push(activeOrganization.id);
+      paramIndex++;
     }
+
+    // ===================================================================
+    // FILTRO POR ROL:
+    // Si NO es admin ni superadmin, filtramos obligatoriamente por su ID
+    // (solo ve SUS estudiantes dentro de la organización)
+    // ===================================================================
+    if (!isAdmin) {
+      whereClauses.push(`s.coordinador_id = $${paramIndex}`);
+      queryParams.push(userId);
+      paramIndex++;
+    }
+
+    const whereClause = whereClauses.length > 0
+      ? `WHERE ${whereClauses.join(' AND ')}`
+      : '';
 
     const query = `
       SELECT
@@ -216,12 +243,12 @@ export const getStudentsController = async (req, res) => {
       LEFT JOIN estudiante_programas ep ON s.id = ep.estudiante_id
       LEFT JOIN programas p ON ep.programa_id = p.id
 
-      ${whereClause} -- 👈 Aquí se inyecta el filtro si no es admin
+      ${whereClause}
 
       GROUP BY
         s.id, u.name
       ORDER BY
-        s.created_at DESC; -- Ordenar por los más recientes
+        s.created_at DESC;
     `;
 
     const { rows } = await pool.query(query, queryParams);
@@ -326,9 +353,9 @@ export const getStudentByIdController = async (req, res) => {
         s.*,
         u.id AS coordinador_id, 
         u.name AS coordinador_nombre,
-        b.id AS business_id, 
-        b.name AS business_name,
-        b.profile_picture_url AS business_profile_picture_url,
+        o.id AS organization_id, 
+        o.name AS organization_name,
+        o.logo_url AS organization_logo_url,
         
         -- ✅ Agregación de TODOS los programas asociados (Tabla estudiante_programas)
         COALESCE(
@@ -346,10 +373,8 @@ export const getStudentByIdController = async (req, res) => {
       FROM
         students s
       LEFT JOIN users u ON s.coordinador_id = u.id
-      LEFT JOIN businesses b ON u.business_id = b.id
-
-      -- ❌ Ya NO usamos s.programa_id porque esa columna fue eliminada
-      -- LEFT JOIN programas p_main ON s.programa_id = p_main.id 
+      LEFT JOIN organization_users ou ON u.id = ou.user_id AND ou.is_default = true
+      LEFT JOIN organizations o ON ou.organization_id = o.id
 
       LEFT JOIN estudiante_programas ep ON s.id = ep.estudiante_id
       LEFT JOIN programas p_assoc ON ep.programa_id = p_assoc.id
@@ -358,7 +383,7 @@ export const getStudentByIdController = async (req, res) => {
         s.id = $1
 
       GROUP BY 
-        s.id, u.id, u.name, b.id, b.name, b.profile_picture_url;
+        s.id, u.id, u.name, o.id, o.name, o.logo_url;
     `;
 
     const result = await pool.query(query, [studentId]);
@@ -396,13 +421,10 @@ export const getStudentByIdController = async (req, res) => {
       activo: flatStudent.activo,
       eps: flatStudent.eps,
       rh: flatStudent.rh,
-      documento_url: flatStudent.documento, // o documento_url según se llame en la tabla
+      documento_url: flatStudent.documento,
       created_at: flatStudent.created_at,
       updated_at: flatStudent.updated_at,
       posible_graduacion: flatStudent.posible_graduacion,
-
-      // ❌ Ya no hay programa_principal porque no existe programa_id en students
-      // programa_principal: null,
 
       // ✅ Acudiente
       acudiente: flatStudent.nombre_acudiente
@@ -422,17 +444,16 @@ export const getStudentByIdController = async (req, res) => {
         }
         : null,
 
-      // ✅ Business
-      business: flatStudent.business_id
+      // ✅ Organización (reemplaza business)
+      organization: flatStudent.organization_id
         ? {
-          id: flatStudent.business_id,
-          name: flatStudent.business_name,
-          profilePictureUrl: flatStudent.business_profile_picture_url,
+          id: flatStudent.organization_id,
+          name: flatStudent.organization_name,
+          logoUrl: flatStudent.organization_logo_url,
         }
         : null,
 
       // ✅ Programas Asociados
-      // Nos aseguramos de devolver SIEMPRE un array (no null)
       programas_asociados:
         flatStudent.programas_asociados && Array.isArray(flatStudent.programas_asociados)
           ? flatStudent.programas_asociados

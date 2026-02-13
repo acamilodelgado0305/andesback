@@ -15,6 +15,7 @@ import materiasRouter from './routes/materiasRouter.js'
 import evaluacionesRouter from "./routes/evaluacionesRouter.js"
 import programasRoutes from "./routes/programasRoutes.js"
 import studentAuthRouter from "./routes/studentAuthRoutes.js"
+import organizationRouter from "./routes/organizationRouter.js"
 import dotenv from "dotenv";
 import { tenantResolver } from "./middlewares/tenantResolver.js";
 
@@ -22,7 +23,7 @@ import { tenantResolver } from "./middlewares/tenantResolver.js";
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3002 ;
+const PORT = process.env.PORT || 3002;
 
 app.set('port', PORT);
 
@@ -37,31 +38,32 @@ app.use(express.json());
 // Middleware para manejar errores
 app.use((err, req, res, next) => {
     console.error('Error:', err.message);
-    res.status(500).send('Error interno del servidor'); 
+    res.status(500).send('Error interno del servidor');
 });
 
 
 // Rutas públicas (sin protección)
 app.use('/api', authRouter);
 app.use('/api', programasRoutes)
-app.use('/api',  CertificadosRouter);
+app.use('/api', CertificadosRouter);
 ;
 app.use('/api', RegistroRouter);
-app.use('/api',  facturaRouter);
-app.use('/api',  subjectRouter);
-app.use('/api',  GradesRouter);
+app.use('/api', facturaRouter);
+app.use('/api', subjectRouter);
+app.use('/api', GradesRouter);
 
-app.use('/api',  adminrRoutes);
-app.use('/api',  docentesRouter);
-app.use('/api',  materiasRouter);
+app.use('/api', adminrRoutes);
+app.use('/api', docentesRouter);
+app.use('/api', materiasRouter);
 app.use('/api', evaluacionesRouter);
 
 app.use('/api/student-portal', studentAuthRouter);
-
-// Rutas protegidas (requieren autenticación con token)
-app.use("/api", tenantResolver);
+app.use('/api', organizationRouter);
 app.use('/api', StudentRouter);
-app.use('/api',  InventarioRouter);
+
+// Rutas protegidas (requieren tenant header)
+app.use("/api", tenantResolver);
+app.use('/api', InventarioRouter);
 
 
 
