@@ -44,7 +44,7 @@ router.post('/students', authMiddleware, createStudentAuthenticated);
 
 // GET: Obtener estudiantes filtrados por TIPO de programa (bachillerato o tecnicos)
 // NOTA: Esta ruta debe ir ANTES de '/students/:id' para evitar conflictos.
-router.get('/students/type/:tipo', getStudentsByProgramTypeController);
+router.get('/students/type/:tipo', authMiddleware, getStudentsByProgramTypeController);
 // Ejemplo de uso:
 // GET /api/students/type/bachillerato
 // GET /api/students/type/tecnicos

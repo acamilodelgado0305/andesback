@@ -832,6 +832,14 @@ const getStudentsByProgramTypeController = async (req, res) => {
   const { tipo } = req.params;
   const { activo, modalidad } = req.query;
 
+  // 1. Obtener datos del usuario desde el Token (inyectado por authMiddleware)
+  const userId = req.user?.id;
+  const userRole = req.user?.role;
+
+  if (!userId) {
+    return res.status(401).json({ error: "Usuario no autenticado." });
+  }
+
   if (tipo !== "bachillerato" && tipo !== "tecnicos") {
     return res
       .status(400)
@@ -841,35 +849,70 @@ const getStudentsByProgramTypeController = async (req, res) => {
   const programTypeFilter = tipo === "bachillerato" ? "Validacion" : "Tecnico";
 
   try {
+    // 2. Construcción dinámica de filtros (misma lógica que getStudentsController)
+    const conditions = ["p.tipo_programa = $1"];
+    const queryParams = [programTypeFilter];
+    let paramIndex = 2;
+
+    // LÓGICA DE SEGURIDAD:
+    // Si NO es admin ni superadmin, filtramos obligatoriamente por su coordinador_id
+    const isAdmin = userRole === 'admin' || userRole === 'superadmin';
+
+    if (!isAdmin) {
+      conditions.push(`s.coordinador_id = $${paramIndex}`);
+      queryParams.push(userId);
+      paramIndex++;
+    }
+
+    // Filtros opcionales de query params
+    if (activo !== undefined && activo !== null) {
+      conditions.push(`s.activo::TEXT = $${paramIndex}`);
+      queryParams.push(activo);
+      paramIndex++;
+    }
+
+    if (modalidad !== undefined && modalidad !== null) {
+      conditions.push(`s.modalidad_estudio = $${paramIndex}`);
+      queryParams.push(modalidad);
+      paramIndex++;
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    console.log(`Consultando estudiantes por tipo. Usuario: ${userId}, Rol: ${userRole}, Tipo: ${tipo}`);
+
     const query = `
       SELECT
-        s.id,
-        s.nombre,
-        s.apellido,
-        s.email,
-        s.telefono_whatsapp,
-        s.activo,
-        s.modalidad_estudio,
-        p.nombre AS nombre_programa,
-        p.tipo_programa
+        s.*,
+        u.name AS coordinador_nombre,
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'programa_id', p.id,
+              'nombre', p.nombre,
+              'tipo_programa', p.tipo_programa,
+              'duracion_meses', p.duracion_meses
+            )
+          ) FILTER (WHERE p.id IS NOT NULL),
+          '[]'::json
+        ) AS programas_asociados
+
       FROM
         students s
-      JOIN estudiante_programas ep ON s.id = ep.estudiante_id
-      JOIN programas p ON ep.programa_id = p.id
-      WHERE
-        p.tipo_programa = $1
-        AND ($2::TEXT IS NULL OR s.activo::TEXT = $2::TEXT)
-        AND ($3::TEXT IS NULL OR s.modalidad_estudio = $3)
+      LEFT JOIN users u ON s.coordinador_id = u.id
+      LEFT JOIN estudiante_programas ep ON s.id = ep.estudiante_id
+      LEFT JOIN programas p ON ep.programa_id = p.id
+
+      ${whereClause}
+
+      GROUP BY
+        s.id, u.name
       ORDER BY
-        s.apellido,
-        s.nombre,
-        p.nombre;
+        s.created_at DESC;
     `;
 
-    const values = [programTypeFilter, activo, modalidad];
-
-    const result = await pool.query(query, values);
-    res.status(200).json(result.rows);
+    const { rows } = await pool.query(query, queryParams);
+    return res.status(200).json(rows);
   } catch (err) {
     console.error(`Error en getStudentsByProgramTypeController (${tipo}):`, err);
     res.status(500).json({ error: "Error interno del servidor." });

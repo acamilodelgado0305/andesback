@@ -60,11 +60,11 @@ export const createEvaluacion = async (req, res) => {
 };
 
 /**
- * Listar evaluaciones (filtros opcionales: programa_id, tipo_destino, activa)
- * Query params: ?programa_id=...&tipo_destino=...&activa=true
+ * Listar evaluaciones (filtros opcionales: programa_id, materia_id, tipo_destino, activa)
+ * Query params: ?programa_id=...&materia_id=...&tipo_destino=...&activa=true
  */
 export const getEvaluaciones = async (req, res) => {
-  const { programa_id, tipo_destino, activa } = req.query;
+  const { programa_id, materia_id, tipo_destino, activa } = req.query;
 
   try {
     const condiciones = [];
@@ -72,15 +72,19 @@ export const getEvaluaciones = async (req, res) => {
     let idx = 1;
 
     if (programa_id) {
-      condiciones.push(`programa_id = $${idx++}`);
+      condiciones.push(`e.programa_id = $${idx++}`);
       valores.push(programa_id);
     }
+    if (materia_id) {
+      condiciones.push(`e.materia_id = $${idx++}`);
+      valores.push(materia_id);
+    }
     if (tipo_destino) {
-      condiciones.push(`tipo_destino = $${idx++}`);
+      condiciones.push(`e.tipo_destino = $${idx++}`);
       valores.push(tipo_destino);
     }
     if (activa !== undefined) {
-      condiciones.push(`activa = $${idx++}`);
+      condiciones.push(`e.activa = $${idx++}`);
       valores.push(activa === 'true');
     }
 
@@ -88,10 +92,23 @@ export const getEvaluaciones = async (req, res) => {
       condiciones.length > 0 ? `WHERE ${condiciones.join(' AND ')}` : '';
 
     const query = `
-      SELECT *
-      FROM public.evaluaciones
+      SELECT
+        e.*,
+        p.nombre AS programa_nombre,
+        p.tipo_programa AS programa_tipo,
+        m.nombre AS materia_nombre,
+        m.tipo_programa AS materia_tipo,
+        COALESCE(qc.total_preguntas, 0) AS total_preguntas
+      FROM public.evaluaciones e
+      LEFT JOIN public.programas p ON e.programa_id = p.id
+      LEFT JOIN public.materias m ON e.materia_id = m.id
+      LEFT JOIN (
+        SELECT evaluacion_id, COUNT(*) AS total_preguntas
+        FROM public.evaluacion_preguntas
+        GROUP BY evaluacion_id
+      ) qc ON qc.evaluacion_id = e.id
       ${whereClause}
-      ORDER BY id DESC;
+      ORDER BY e.id DESC;
     `;
 
     const { rows } = await pool.query(query, valores);
