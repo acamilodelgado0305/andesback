@@ -326,9 +326,12 @@ export const getStudentByIdController = async (req, res) => {
         s.*,
         u.id AS coordinador_id, 
         u.name AS coordinador_nombre,
-        b.id AS business_id, 
-        b.name AS business_name,
-        b.profile_picture_url AS business_profile_picture_url,
+        -- b.id AS business_id, 
+        -- b.name AS business_name,
+        -- b.profile_picture_url AS business_profile_picture_url,
+        NULL AS business_id,
+        NULL AS business_name,
+        NULL AS business_profile_picture_url,
         
         -- ✅ Agregación de TODOS los programas asociados (Tabla estudiante_programas)
         COALESCE(
@@ -346,7 +349,7 @@ export const getStudentByIdController = async (req, res) => {
       FROM
         students s
       LEFT JOIN users u ON s.coordinador_id = u.id
-      LEFT JOIN businesses b ON u.business_id = b.id
+      -- LEFT JOIN businesses b ON u.business_id = b.id
 
       -- ❌ Ya NO usamos s.programa_id porque esa columna fue eliminada
       -- LEFT JOIN programas p_main ON s.programa_id = p_main.id 
@@ -358,7 +361,7 @@ export const getStudentByIdController = async (req, res) => {
         s.id = $1
 
       GROUP BY 
-        s.id, u.id, u.name, b.id, b.name, b.profile_picture_url;
+        s.id, u.id, u.name; --, b.id, b.name, b.profile_picture_url;
     `;
 
     const result = await pool.query(query, [studentId]);
@@ -480,9 +483,12 @@ const getStudentByDocumentController = async (req, res) => {
         s.telefono_acudiente, s.direccion_acudiente,
         -- ✅ nuevo campo
         s.posible_graduacion,
+        s.posible_graduacion,
         u.id AS coordinador_id, u.name AS coordinador_nombre,
-        b.id AS business_id, b.name AS business_name,
-        b.profile_picture_url AS business_profile_picture_url,
+        -- b.id AS business_id, b.name AS business_name,
+        -- b.profile_picture_url AS business_profile_picture_url,
+        NULL AS business_id, NULL AS business_name,
+        NULL AS business_profile_picture_url,
         COALESCE(
             json_agg(
                 json_build_object(
@@ -496,13 +502,13 @@ const getStudentByDocumentController = async (req, res) => {
     FROM
         students s
     LEFT JOIN users u ON s.coordinador_id = u.id
-    LEFT JOIN businesses b ON u.business_id = b.id
+    -- LEFT JOIN businesses b ON u.business_id = b.id
     LEFT JOIN estudiante_programas ep ON s.id = ep.estudiante_id
     LEFT JOIN inventario i ON ep.programa_id = i.id
     WHERE
         s.numero_documento = $1
     GROUP BY
-        s.id, u.id, b.id;
+        s.id, u.id; --, b.id;
 `;
 
     const result = await pool.query(query, [numero_documento]);

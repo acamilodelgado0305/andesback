@@ -126,7 +126,8 @@ export const studentLogin = async (req, res) => {
 
 export const getStudentProfile = async (req, res) => {
   try {
-    const studentId = req.student?.id; // seteado por el middleware
+    const studentId = req.student?.id;
+    const documento = req.student?.documento;
 
     if (!studentId) {
       return res.status(401).json({
@@ -136,16 +137,31 @@ export const getStudentProfile = async (req, res) => {
     }
 
     const query = `
-      SELECT 
-        id,
-        nombre,
-        apellido,
-        documento,
-        programa_id,
-        coordinador_id,
-        activo
-      FROM students
-      WHERE id = $1
+      SELECT
+        s.id,
+        s.nombre,
+        s.apellido,
+        CAST(s.numero_documento AS TEXT) AS documento,
+        s.coordinador_id,
+        s.activo,
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'programa_id', p.id,
+              'nombre', p.nombre,
+              'tipo_programa', p.tipo_programa,
+              'duracion_meses', p.duracion_meses,
+              'valor_matricula', p.valor_matricula,
+              'valor_mensualidad', p.valor_mensualidad
+            )
+          ) FILTER (WHERE p.id IS NOT NULL),
+          '[]'::json
+        ) AS programas_asociados
+      FROM students s
+      LEFT JOIN estudiante_programas ep ON s.id = ep.estudiante_id
+      LEFT JOIN programas p ON ep.programa_id = p.id
+      WHERE s.id = $1
+      GROUP BY s.id, s.nombre, s.apellido, s.numero_documento, s.coordinador_id, s.activo
       LIMIT 1;
     `;
 
@@ -168,9 +184,9 @@ export const getStudentProfile = async (req, res) => {
         apellido: student.apellido,
         nombre_completo: `${student.nombre} ${student.apellido}`.trim(),
         documento: student.documento,
-        programa_id: student.programa_id,
         coordinador_id: student.coordinador_id,
         activo: student.activo,
+        programas_asociados: student.programas_asociados || [],
       },
     });
   } catch (error) {
@@ -181,3 +197,4 @@ export const getStudentProfile = async (req, res) => {
     });
   }
 };
+
