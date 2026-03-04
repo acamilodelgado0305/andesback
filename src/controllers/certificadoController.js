@@ -140,60 +140,97 @@ const generarCarnetController = async (req, res) => {
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
 
-        const doc = new PDFDocument({
-            size: [85.6 * 2.83, 54 * 2.83], // Aprox. 242.5 x 153 pt
-            margin: 0,
-        });
+        // Dimensiones CR80 estándar en puntos (mismo factor que el diseño original)
+        const carnetW = 85.6 * 2.83; // ≈ 242 pt
+        const carnetH = 54  * 2.83;  // ≈ 153 pt
 
+        // Una sola hoja A4 con frente y posterior centrados, lista para imprimir y cortar
+        const doc = new PDFDocument({ size: 'A4', margin: 0 });
         doc.pipe(res);
 
-        const frontalImagePath = path.join(__dirname, '..', 'imagenes', 'frontal.png');
-        const posteriorImagePath = path.join(__dirname, '..', 'imagenes', 'posterior.png');
-        const frontalImageBuffer = fs.readFileSync(frontalImagePath);
-        const posteriorImageBuffer = fs.readFileSync(posteriorImagePath);
+        const pageW = doc.page.width;   // 595 pt
+        const pageH = doc.page.height;  // 842 pt
 
-        // --- Página Frontal del Carnet ---
-        doc.image(frontalImageBuffer, 0, 0, { width: doc.page.width, height: doc.page.height });
+        // Centrado horizontal; frente en mitad superior, posterior en mitad inferior
+        const cx     = (pageW - carnetW) / 2;
+        const frontY = (pageH / 2 - carnetH) / 2;
+        const backY  = pageH / 2 + (pageH / 2 - carnetH) / 2;
+
+        // Función de marcas de corte en las 4 esquinas de un carnet
+        const drawCropMarks = (x, y, w, h) => {
+            const gap = 5;   // separación del borde
+            const len = 12;  // longitud de la marca
+            doc.save().strokeColor('#999999').lineWidth(0.4);
+            // Esquina superior izquierda
+            doc.moveTo(x - gap - len, y        ).lineTo(x - gap, y        ).stroke();
+            doc.moveTo(x,             y - gap - len).lineTo(x,     y - gap).stroke();
+            // Esquina superior derecha
+            doc.moveTo(x + w + gap,   y        ).lineTo(x + w + gap + len, y).stroke();
+            doc.moveTo(x + w,         y - gap - len).lineTo(x + w, y - gap).stroke();
+            // Esquina inferior izquierda
+            doc.moveTo(x - gap - len, y + h    ).lineTo(x - gap, y + h    ).stroke();
+            doc.moveTo(x,             y + h + gap).lineTo(x,     y + h + gap + len).stroke();
+            // Esquina inferior derecha
+            doc.moveTo(x + w + gap,   y + h    ).lineTo(x + w + gap + len, y + h).stroke();
+            doc.moveTo(x + w,         y + h + gap).lineTo(x + w, y + h + gap + len).stroke();
+            doc.restore();
+        };
+
+        const frontalImageBuffer  = fs.readFileSync(path.join(__dirname, '..', 'imagenes', 'frontal.png'));
+        const posteriorImageBuffer = fs.readFileSync(path.join(__dirname, '..', 'imagenes', 'posterior.png'));
+
+        const fechaActual = new Date().toLocaleDateString('es-CO', {
+            year: 'numeric', month: '2-digit', day: '2-digit'
+        }).replace(/\//g, '/');
+
+        // ─── CARA FRONTAL ────────────────────────────────────────────────
+        doc.image(frontalImageBuffer, cx, frontY, { width: carnetW, height: carnetH });
 
         if (fotoFile) {
             const fotoBuffer = fs.readFileSync(fotoFile.path);
-            doc.image(fotoBuffer, 155, 40, { width: 65, height: 80, align: 'center', valign: 'center' });
+            doc.image(fotoBuffer, cx + 155, frontY + 40, { width: 65, height: 80 });
         }
 
-        doc.fillColor('black');
-        doc.fontSize(7).text(nombre, 8, 60, { width: 150, align: 'center' });
-        doc.fontSize(7).text(tipoDocumento, 55, 73, { width: 150, align: 'left' });
-        doc.fontSize(7).text(intensidadHoraria, 92, 106, { width: 150, align: 'left' });
-        doc.fontSize(7).text(numeroDocumento, 75, 73, { width: 150, align: 'left' });
+        doc.fillColor('black').font('Helvetica')
+            .fontSize(7).text(nombre,            cx + 8,   frontY + 60,  { width: 150, align: 'center' })
+            .fontSize(7).text(tipoDocumento,     cx + 55,  frontY + 73,  { width: 150, align: 'left'   })
+            .fontSize(7).text(numeroDocumento,   cx + 75,  frontY + 73,  { width: 150, align: 'left'   })
+            .fontSize(7).text(intensidadHoraria, cx + 92,  frontY + 106, { width: 150, align: 'left'   })
+            .fontSize(6).text(fechaActual,       cx + 202, frontY + 134, { width: 100, align: 'left'   });
 
-        const fechaActual = new Date().toLocaleDateString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '/');
-        doc.fontSize(6).text(fechaActual, 202, 134, { width: 100, align: 'left' });
+        drawCropMarks(cx, frontY, carnetW, carnetH);
+        doc.fillColor('#888888').fontSize(6)
+            .text('FRENTE', cx, frontY - 13, { width: carnetW, align: 'center' });
 
-        // --- Página Posterior del Carnet ---
-        doc.addPage({ size: [85.6 * 2.83, 54 * 2.83], margin: 0 });
-        doc.image(posteriorImageBuffer, 0, 0, { width: doc.page.width, height: doc.page.height });
+        // ─── CARA POSTERIOR ──────────────────────────────────────────────
+        doc.image(posteriorImageBuffer, cx, backY, { width: carnetW, height: carnetH });
 
-        const fechaVencimiento = new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toLocaleDateString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '/');
-        doc.fillColor('black').fontSize(7).text(fechaVencimiento, 33, 137, { width: 100, align: 'left' });
+        const fechaVencimiento = new Date(
+            new Date().setFullYear(new Date().getFullYear() + 1)
+        ).toLocaleDateString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '/');
 
-        // ==================================================================
-        // <-- 1. GENERACIÓN E INCRUSTACIÓN DEL CÓDIGO QR -->
-        // ==================================================================
+        doc.fillColor('black').font('Helvetica')
+            .fontSize(7).text(fechaVencimiento, cx + 33, backY + 137, { width: 100, align: 'left' });
+
         const urlVerificacion = 'https://quickcontrola.com/verificacion';
         const qrCodeImage = await QRCode.toDataURL(urlVerificacion, {
             errorCorrectionLevel: 'H',
             margin: 1,
-            scale: 3 // Un tamaño más pequeño, adecuado para el carnet
+            scale: 3,
         });
+        doc.image(qrCodeImage, cx + 180, backY + 25, { width: 40 });
 
-        // Incrustamos el QR en la parte posterior. Ajusta X, Y y el ancho según tu diseño.
-        doc.image(qrCodeImage, 180, 25, { // Posición (X, Y)
-            width: 40 // Ancho del QR
-        });
-        // ==================================================================
+        drawCropMarks(cx, backY, carnetW, carnetH);
+        doc.fillColor('#888888').fontSize(6)
+            .text('POSTERIOR', cx, backY - 13, { width: carnetW, align: 'center' });
+
+        // ─── Instrucción de impresión ─────────────────────────────────────
+        doc.fillColor('#aaaaaa').fontSize(6)
+            .text('Imprimir en A4 · Recortar por las marcas · Plastificar',
+                0, pageH - 20, { width: pageW, align: 'center' });
 
         doc.end();
-        console.log(`Carnet PDF generado y enviado para: ${nombre}`);
+        console.log(`Carnet PDF (A4 listo para imprimir) generado para: ${nombre}`);
 
     } catch (err) {
         console.error('Error al generar el carnet:', err);
