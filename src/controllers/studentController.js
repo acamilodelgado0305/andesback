@@ -20,7 +20,8 @@ const insertStudentToDB = async (studentData, res) => {
     telefonoLlamadas, telefonoWhatsapp, simat, pagoMatricula,
     programasIds, coordinador_id, modalidad_estudio, ultimo_curso_visto,
     eps, rh, nombreAcudiente, tipoDocumentoAcudiente,
-    telefonoAcudiente, direccionAcudiente, posibleGraduacion
+    telefonoAcudiente, direccionAcudiente, posibleGraduacion,
+    business_id
   } = studentData;
 
   // 1. Validaciones básicas de integridad
@@ -55,11 +56,11 @@ const insertStudentToDB = async (studentData, res) => {
         telefono_llamadas, telefono_whatsapp, simat, estado_matricula,
         coordinador_id, modalidad_estudio, ultimo_curso_visto,
         eps, rh, nombre_acudiente, tipo_documento_acudiente,
-        telefono_acudiente, direccion_acudiente, posible_graduacion
+        telefono_acudiente, direccion_acudiente, posible_graduacion, business_id
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
         $11, $12, $13, $14, $15, $16, $17, $18, $19,
-        $20, $21, $22
+        $20, $21, $22, $23
       ) RETURNING id;
     `;
 
@@ -69,7 +70,8 @@ const insertStudentToDB = async (studentData, res) => {
       telefonoLlamadas, telefonoWhatsapp, simatBoolean, estadoMatriculaBoolean,
       coordinador_id, modalidad_estudio || null, ultimo_curso_visto || null,
       eps || null, rh || null, nombreAcudiente || null, tipoDocumentoAcudiente || null,
-      telefonoAcudiente || null, direccionAcudiente || null, posibleGraduacionBoolean
+      telefonoAcudiente || null, direccionAcudiente || null, posibleGraduacionBoolean,
+      business_id || null
     ];
 
     const studentResult = await client.query(studentInsertQuery, values);
@@ -126,7 +128,8 @@ export const createStudentAuthenticated = async (req, res) => {
     // Preparamos los datos inyectando el coordinador seguro
     const studentData = {
       ...req.body,
-      coordinador_id: finalCoordinatorId
+      coordinador_id: finalCoordinatorId,
+      business_id: req.user.business_id // Vinculado a la lógica de negocio del auth-service
     };
 
     // Delegamos al helper
@@ -188,9 +191,16 @@ export const getStudentsController = async (req, res) => {
     // Si NO es admin ni superadmin, filtramos obligatoriamente por su ID
     const isAdmin = userRole === 'admin' || userRole === 'superadmin';
 
+    // Para admins aseguramos que se filtre por su negocio actual si es multitenant,
+    // o simplemente si el usuario tiene un business_id
+    const userBusinessId = req.user?.business_id;
+
     if (!isAdmin) {
       whereClause = "WHERE s.coordinador_id = $1";
       queryParams.push(userId);
+    } else if (userBusinessId) {
+      whereClause = "WHERE s.business_id = $1";
+      queryParams.push(userBusinessId);
     }
 
     const query = `
@@ -329,7 +339,7 @@ export const getStudentByIdController = async (req, res) => {
         -- b.id AS business_id, 
         -- b.name AS business_name,
         -- b.profile_picture_url AS business_profile_picture_url,
-        NULL AS business_id,
+        s.business_id,
         NULL AS business_name,
         NULL AS business_profile_picture_url,
         
@@ -487,7 +497,7 @@ const getStudentByDocumentController = async (req, res) => {
         u.id AS coordinador_id, u.name AS coordinador_nombre,
         -- b.id AS business_id, b.name AS business_name,
         -- b.profile_picture_url AS business_profile_picture_url,
-        NULL AS business_id, NULL AS business_name,
+        s.business_id, NULL AS business_name,
         NULL AS business_profile_picture_url,
         COALESCE(
             json_agg(

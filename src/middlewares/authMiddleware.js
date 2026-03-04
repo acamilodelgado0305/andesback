@@ -36,6 +36,7 @@ export const authMiddleware = (req, res, next) => {
             name: decoded.name,
             role: decoded.role,
             scope: decoded.scope,
+            business_id: decoded.bid || decoded.business_id, // Extraido del token de auth-service
             raw: decoded,
         };
 
