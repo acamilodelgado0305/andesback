@@ -212,26 +212,24 @@ export const getStudentsController = async (req, res) => {
     console.log(`Consultando estudiantes. Usuario: ${userId}, Rol: ${userRole}, Business: ${businessId}`);
 
     // 2. Construcción dinámica de la consulta
+    const isAdmin = userRole === 'admin' || userRole === 'superadmin';
     const conditions = [];
     const queryParams = [];
     let paramIndex = 1;
 
-    // Filtramos por business usando el bid del token
-    conditions.push(`u.business_id = $${paramIndex}`);
-    queryParams.push(businessId);
-    paramIndex++;
-
-    // LÓGICA DE SEGURIDAD:
-    // Si NO es admin ni superadmin, filtramos además por el coordinador_id del usuario
-    const isAdmin = userRole === 'admin' || userRole === 'superadmin';
-
-    if (!isAdmin) {
+    if (isAdmin) {
+      // Admin/superadmin: todos los estudiantes sin filtro de business
+      // TODO: reemplazar por filtro de business_id cuando coordinadores estén migrados:
+      // conditions.push(`u.business_id = $${paramIndex}`);
+      // queryParams.push(businessId); paramIndex++;
+    } else {
+      // No-admin: solo sus propios estudiantes
       conditions.push(`s.coordinador_id = $${paramIndex}`);
       queryParams.push(userId);
       paramIndex++;
     }
 
-    const whereClause = `WHERE ${conditions.join(' AND ')}`;
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
     const query = `
       SELECT
