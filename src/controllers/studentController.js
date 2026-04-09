@@ -112,24 +112,50 @@ const insertStudentToDB = async (studentData, res) => {
 // =======================================================
 export const createStudentAuthenticated = async (req, res) => {
   try {
-    // Obtenemos datos seguros del Token (inyectado por authMiddleware)
     const userId = req.user.id;
+    const userRole = req.user.role;
+    const businessId = req.user.bid;
 
+    if (!businessId) {
+      return res.status(400).json({ error: "Token sin business asociado." });
+    }
 
-    // Lógica de Negocio:
-    // Si es ADMIN, puede especificar otro coordinador en el body.
-    // Si es COORDINADOR, se fuerza su propio ID.
-    let finalCoordinatorId = userId;
+    let finalCoordinatorId;
 
+    const isAdmin = userRole === 'admin' || userRole === 'superadmin';
 
+    if (isAdmin && req.body.coordinador_id) {
+      // Admin puede elegir un coordinador del body — verificamos que pertenezca al business activo
+      const coordCheck = await pool.query(
+        'SELECT id FROM users WHERE id = $1 AND business_id = $2',
+        [req.body.coordinador_id, businessId]
+      );
+      if (coordCheck.rows.length === 0) {
+        return res.status(400).json({
+          error: "El coordinador seleccionado no pertenece al negocio activo."
+        });
+      }
+      finalCoordinatorId = req.body.coordinador_id;
+    } else {
+      // No admin (o admin sin coordinador en body): se usa el propio usuario
+      // Verificamos que el usuario pertenezca al business activo
+      const selfCheck = await pool.query(
+        'SELECT id FROM users WHERE id = $1 AND business_id = $2',
+        [userId, businessId]
+      );
+      if (selfCheck.rows.length === 0) {
+        return res.status(400).json({
+          error: "Tu usuario no está registrado en el negocio activo. Selecciona un coordinador del negocio correcto."
+        });
+      }
+      finalCoordinatorId = userId;
+    }
 
-    // Preparamos los datos inyectando el coordinador seguro
     const studentData = {
       ...req.body,
       coordinador_id: finalCoordinatorId
     };
 
-    // Delegamos al helper
     return await insertStudentToDB(studentData, res);
 
   } catch (error) {
@@ -172,26 +198,40 @@ export const getStudentsController = async (req, res) => {
   try {
     // 1. Obtener datos del usuario desde el Token (inyectado por authMiddleware)
     const userId = req.user?.id;
-    const userRole = req.user?.role; // Asegúrate de que tu JWT incluya el 'role'
+    const userRole = req.user?.role;
+    const businessId = req.user?.bid;
 
     if (!userId) {
       return res.status(401).json({ error: "Usuario no autenticado." });
     }
 
-    console.log(`Consultando estudiantes. Usuario: ${userId}, Rol: ${userRole}`);
+    if (!businessId) {
+      return res.status(400).json({ error: "Token sin business asociado." });
+    }
+
+    console.log(`Consultando estudiantes. Usuario: ${userId}, Rol: ${userRole}, Business: ${businessId}`);
 
     // 2. Construcción dinámica de la consulta
-    let whereClause = "";
+    const conditions = [];
     const queryParams = [];
+    let paramIndex = 1;
+
+    // Filtramos por business usando el bid del token
+    conditions.push(`u.business_id = $${paramIndex}`);
+    queryParams.push(businessId);
+    paramIndex++;
 
     // LÓGICA DE SEGURIDAD:
-    // Si NO es admin ni superadmin, filtramos obligatoriamente por su ID
+    // Si NO es admin ni superadmin, filtramos además por el coordinador_id del usuario
     const isAdmin = userRole === 'admin' || userRole === 'superadmin';
 
     if (!isAdmin) {
-      whereClause = "WHERE s.coordinador_id = $1";
+      conditions.push(`s.coordinador_id = $${paramIndex}`);
       queryParams.push(userId);
+      paramIndex++;
     }
+
+    const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
     const query = `
       SELECT
@@ -216,12 +256,12 @@ export const getStudentsController = async (req, res) => {
       LEFT JOIN estudiante_programas ep ON s.id = ep.estudiante_id
       LEFT JOIN programas p ON ep.programa_id = p.id
 
-      ${whereClause} -- 👈 Aquí se inyecta el filtro si no es admin
+      ${whereClause}
 
       GROUP BY
         s.id, u.name
       ORDER BY
-        s.created_at DESC; -- Ordenar por los más recientes
+        s.created_at DESC;
     `;
 
     const { rows } = await pool.query(query, queryParams);
