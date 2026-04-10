@@ -1,19 +1,18 @@
 import express from 'express';
 import {
-
-  createStudentAuthenticated, // Nuevo controlador seguro
+  createStudentAuthenticated,
   createStudentPublic,
   getStudentsController,
   getStudentByIdController,
   updateStudentController,
   deleteStudentController,
   updateEstadoStudentController,
-  // === Controladores de filtrado actualizados ===
-  getStudentsByProgramTypeController, // Reemplaza getStudentsByBachilleratoController y getStudentsByTecnicosController
-  getStudentsByProgramaIdController,  // Nuevo para filtrar por ID de programa
+  getStudentsByProgramTypeController,
+  getStudentsByProgramaIdController,
   getStudentsByCoordinatorIdController,
   getStudentByDocumentController,
   updatePosibleGraduacionStudentController,
+  graduateStudentController,
   uploadStudentDocumentController,
   getStudentDocumentsController,
   deleteStudentDocumentController
@@ -59,17 +58,19 @@ router.get('/students/program/:programaId', getStudentsByProgramaIdController);
 
 router.get('/students/document/:numero_documento', getStudentByDocumentController);
 
-// GET: Obtener todos los estudiantes (esta debe ir después de las rutas estáticas
+// GET: Obtener estudiantes por coordinador (DEBE ir antes de /students/:id)
+router.get('/students/coordinator/:coordinatorId', getStudentsByCoordinatorIdController);
 
-// GET: Obtener un estudiante por su ID
-// Esta ruta debe ir DESPUÉS de las rutas estáticas como /students/type/:tipo
-// para que 'type' o 'program' no sean interpretados como un ID.
+// GET: Obtener un estudiante por su ID (rutas estáticas deben ir antes que esta)
 router.get('/students/:id', getStudentByIdController);
 
 
 // PUT: Actualizar el estado de matrícula de un estudiante por su ID
 // NOTA: Ruta específica, idealmente antes de la ruta PUT genérica si el orden importa
 router.put('/students/status_matricula/:id', updateEstadoStudentController);
+
+// PUT: Marcar estudiante como graduado
+router.put('/students/:id/graduate', authMiddleware, graduateStudentController);
 
 // PUT: Actualizar un estudiante por su ID (todos los campos)
 router.put('/students/:id', updateStudentController);
@@ -80,7 +81,6 @@ router.delete('/students/:id', deleteStudentController);
 // POST: Subir archivo de estudiantes
 router.post('/upload-students', upload.single('file'), uploadStudentsController);
 
-router.get('/students/coordinator/:coordinatorId', getStudentsByCoordinatorIdController);
 
 
 // =======================================================

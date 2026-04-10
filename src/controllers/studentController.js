@@ -331,47 +331,27 @@ export const getStudentByIdController = async (req, res) => {
   }
 
   try {
+    // Sin LEFT JOIN a 'users' (no existe en esta BD).
+    // El nombre del coordinador se enriquece desde auth-service tras la consulta.
     const query = `
       SELECT
         s.*,
-        u.id AS coordinador_id, 
-        u.name AS coordinador_nombre,
-        -- b.id AS business_id, 
-        -- b.name AS business_name,
-        -- b.profile_picture_url AS business_profile_picture_url,
-        NULL AS business_id,
-        NULL AS business_name,
-        NULL AS business_profile_picture_url,
-        
-        -- ✅ Agregación de TODOS los programas asociados (Tabla estudiante_programas)
         COALESCE(
           json_agg(
             json_build_object(
-              'programa_id', p_assoc.id,
-              'nombre', p_assoc.nombre,
-              'tipo_programa', p_assoc.tipo_programa,
+              'programa_id',    p_assoc.id,
+              'nombre',         p_assoc.nombre,
+              'tipo_programa',  p_assoc.tipo_programa,
               'duracion_meses', p_assoc.duracion_meses
             )
           ) FILTER (WHERE p_assoc.id IS NOT NULL),
           '[]'::json
         ) AS programas_asociados
-
-      FROM
-        students s
-      LEFT JOIN users u ON s.coordinador_id = u.id
-      -- LEFT JOIN businesses b ON u.business_id = b.id
-
-      -- ❌ Ya NO usamos s.programa_id porque esa columna fue eliminada
-      -- LEFT JOIN programas p_main ON s.programa_id = p_main.id 
-
+      FROM students s
       LEFT JOIN estudiante_programas ep ON s.id = ep.estudiante_id
       LEFT JOIN programas p_assoc ON ep.programa_id = p_assoc.id
-
-      WHERE
-        s.id = $1
-
-      GROUP BY 
-        s.id, u.id, u.name; --, b.id, b.name, b.profile_picture_url;
+      WHERE s.id = $1
+      GROUP BY s.id;
     `;
 
     const result = await pool.query(query, [studentId]);
@@ -382,11 +362,18 @@ export const getStudentByIdController = async (req, res) => {
 
     const flatStudent = result.rows[0];
 
-    // ----------------------------------------------------
-    // Mapeo de Respuesta
-    // ----------------------------------------------------
+    // Enriquecer nombre del coordinador desde auth-service
+    let coordinadorNombre = null;
+    if (flatStudent.coordinador_id) {
+      const authHeader = req.headers['authorization'] || '';
+      const token = authHeader.replace(/^Bearer\s+/i, '');
+      if (token) {
+        const usersMap = await getUsersMapFromAuthService(token);
+        coordinadorNombre = usersMap.get(Number(flatStudent.coordinador_id)) || null;
+      }
+    }
+
     const studentResponse = {
-      // ✅ Campos directos de students
       id: flatStudent.id,
       nombre: flatStudent.nombre,
       apellido: flatStudent.apellido,
@@ -409,47 +396,27 @@ export const getStudentByIdController = async (req, res) => {
       activo: flatStudent.activo,
       eps: flatStudent.eps,
       rh: flatStudent.rh,
-      documento_url: flatStudent.documento, // o documento_url según se llame en la tabla
+      business_id: flatStudent.business_id,
+      documento_url: flatStudent.documento,
       created_at: flatStudent.created_at,
       updated_at: flatStudent.updated_at,
       posible_graduacion: flatStudent.posible_graduacion,
 
-      // ❌ Ya no hay programa_principal porque no existe programa_id en students
-      // programa_principal: null,
+      acudiente: flatStudent.nombre_acudiente ? {
+        nombre:        flatStudent.nombre_acudiente,
+        tipo_documento:flatStudent.tipo_documento_acudiente,
+        telefono:      flatStudent.telefono_acudiente,
+        direccion:     flatStudent.direccion_acudiente,
+      } : null,
 
-      // ✅ Acudiente
-      acudiente: flatStudent.nombre_acudiente
-        ? {
-          nombre: flatStudent.nombre_acudiente,
-          tipo_documento: flatStudent.tipo_documento_acudiente,
-          telefono: flatStudent.telefono_acudiente,
-          direccion: flatStudent.direccion_acudiente,
-        }
-        : null,
+      coordinador: flatStudent.coordinador_id ? {
+        id:     flatStudent.coordinador_id,
+        nombre: coordinadorNombre,
+      } : null,
 
-      // ✅ Coordinador
-      coordinador: flatStudent.coordinador_id
-        ? {
-          id: flatStudent.coordinador_id,
-          nombre: flatStudent.coordinador_nombre,
-        }
-        : null,
-
-      // ✅ Business
-      business: flatStudent.business_id
-        ? {
-          id: flatStudent.business_id,
-          name: flatStudent.business_name,
-          profilePictureUrl: flatStudent.business_profile_picture_url,
-        }
-        : null,
-
-      // ✅ Programas Asociados
-      // Nos aseguramos de devolver SIEMPRE un array (no null)
-      programas_asociados:
-        flatStudent.programas_asociados && Array.isArray(flatStudent.programas_asociados)
-          ? flatStudent.programas_asociados
-          : [],
+      programas_asociados: Array.isArray(flatStudent.programas_asociados)
+        ? flatStudent.programas_asociados
+        : [],
     };
 
     return res.status(200).json(studentResponse);
@@ -479,47 +446,26 @@ const getStudentByDocumentController = async (req, res) => {
   try {
     // 3. Utilizamos tu query original, pero modificamos el WHERE.
     //    Buscamos por `s.numero_documento` en lugar de `s.id`.
+    // Sin LEFT JOIN a 'users' ni 'inventario' (no existen en esta BD).
     const query = `
-    SELECT
-        s.id, s.nombre, s.apellido, s.email, s.tipo_documento,
-        s.numero_documento, s.lugar_expedicion, s.fecha_nacimiento,
-        s.lugar_nacimiento, s.telefono_llamadas, s.telefono_whatsapp,
-        s.simat, s.estado_matricula, s.modalidad_estudio,
-        s.ultimo_curso_visto, s.fecha_inscripcion, s.activo,
-        s.telefono, s.numero_documento, s.fecha_graduacion, 
-        s.matricula, s.eps, s.rh, s.documento, 
-        s.created_at, s.updated_at,
-        s.nombre_acudiente, s.tipo_documento_acudiente,
-        s.telefono_acudiente, s.direccion_acudiente,
-        -- ✅ nuevo campo
-        s.posible_graduacion,
-        s.posible_graduacion,
-        u.id AS coordinador_id, u.name AS coordinador_nombre,
-        -- b.id AS business_id, b.name AS business_name,
-        -- b.profile_picture_url AS business_profile_picture_url,
-        NULL AS business_id, NULL AS business_name,
-        NULL AS business_profile_picture_url,
+      SELECT
+        s.*,
         COALESCE(
-            json_agg(
-                json_build_object(
-                    'programa_id', i.id,
-                    'nombre_programa', i.nombre,
-                    'monto_programa', i.monto
-                )
-            ) FILTER (WHERE i.id IS NOT NULL),
-            '[]'::json
+          json_agg(
+            json_build_object(
+              'programa_id',   p.id,
+              'nombre',        p.nombre,
+              'tipo_programa', p.tipo_programa
+            )
+          ) FILTER (WHERE p.id IS NOT NULL),
+          '[]'::json
         ) AS programas_asociados
-    FROM
-        students s
-    LEFT JOIN users u ON s.coordinador_id = u.id
-    -- LEFT JOIN businesses b ON u.business_id = b.id
-    LEFT JOIN estudiante_programas ep ON s.id = ep.estudiante_id
-    LEFT JOIN inventario i ON ep.programa_id = i.id
-    WHERE
-        s.numero_documento = $1
-    GROUP BY
-        s.id, u.id; --, b.id;
-`;
+      FROM students s
+      LEFT JOIN estudiante_programas ep ON s.id = ep.estudiante_id
+      LEFT JOIN programas p ON ep.programa_id = p.id
+      WHERE s.numero_documento = $1
+      GROUP BY s.id;
+    `;
 
     const result = await pool.query(query, [numero_documento]);
 
@@ -529,7 +475,6 @@ const getStudentByDocumentController = async (req, res) => {
 
     const flatStudent = result.rows[0];
 
-    // 4. Mantenemos la misma estructura de respuesta para consistencia en la API.
     const studentResponse = {
       id: flatStudent.id,
       nombre: flatStudent.nombre,
@@ -543,7 +488,6 @@ const getStudentByDocumentController = async (req, res) => {
       telefono_llamadas: flatStudent.telefono_llamadas,
       telefono_whatsapp: flatStudent.telefono_whatsapp,
       telefono: flatStudent.telefono,
-      numero_documento: flatStudent.numero_documento,
       simat: flatStudent.simat,
       estado_matricula: flatStudent.estado_matricula,
       matricula: flatStudent.matricula,
@@ -554,29 +498,25 @@ const getStudentByDocumentController = async (req, res) => {
       activo: flatStudent.activo,
       eps: flatStudent.eps,
       rh: flatStudent.rh,
+      business_id: flatStudent.business_id,
       documento_url: flatStudent.documento,
       created_at: flatStudent.created_at,
       updated_at: flatStudent.updated_at,
-      // ✅ nuevo campo expuesto
       posible_graduacion: flatStudent.posible_graduacion,
       acudiente: flatStudent.nombre_acudiente ? {
-        nombre: flatStudent.nombre_acudiente,
+        nombre:         flatStudent.nombre_acudiente,
         tipo_documento: flatStudent.tipo_documento_acudiente,
-        telefono: flatStudent.telefono_acudiente,
-        direccion: flatStudent.direccion_acudiente
+        telefono:       flatStudent.telefono_acudiente,
+        direccion:      flatStudent.direccion_acudiente,
       } : null,
       coordinador: flatStudent.coordinador_id ? {
-        id: flatStudent.coordinador_id,
-        nombre: flatStudent.coordinador_nombre
+        id:     flatStudent.coordinador_id,
+        nombre: null, // enriquecible desde auth-service si se necesita
       } : null,
-      business: flatStudent.business_id ? {
-        id: flatStudent.business_id,
-        name: flatStudent.business_name,
-        profilePictureUrl: flatStudent.business_profile_picture_url
-      } : null,
-      programas_asociados: flatStudent.programas_asociados
+      programas_asociados: Array.isArray(flatStudent.programas_asociados)
+        ? flatStudent.programas_asociados
+        : [],
     };
-
 
     res.status(200).json(studentResponse);
 
@@ -809,29 +749,23 @@ const getStudentsByProgramaIdController = async (req, res) => {
     const query = `
       SELECT
         s.*,
-        u.name AS coordinador_nombre,
         COALESCE(
           json_agg(
             json_build_object(
               'programa_id', p.id,
-              'nombre_programa', p.nombre,
+              'nombre',      p.nombre,
               'tipo_programa', p.tipo_programa
             )
             ORDER BY p.nombre
           ) FILTER (WHERE p.id IS NOT NULL),
           '[]'::json
         ) AS programas_asociados
-      FROM
-        students s
+      FROM students s
       LEFT JOIN estudiante_programas ep ON s.id = ep.estudiante_id
       LEFT JOIN programas p ON ep.programa_id = p.id
-      LEFT JOIN users u ON s.coordinador_id = u.id
-      WHERE
-        ep.programa_id = $1
-      GROUP BY
-        s.id, u.name
-      ORDER BY
-        s.nombre, s.apellido;
+      WHERE ep.programa_id = $1
+      GROUP BY s.id
+      ORDER BY s.nombre, s.apellido;
     `;
     const result = await pool.query(query, [programaId]);
     res.status(200).json(result.rows);
@@ -900,31 +834,23 @@ const getStudentsByProgramTypeController = async (req, res) => {
     const query = `
       SELECT
         s.*,
-        u.name AS coordinador_nombre,
         COALESCE(
           json_agg(
             json_build_object(
-              'programa_id', p.id,
-              'nombre', p.nombre,
-              'tipo_programa', p.tipo_programa,
+              'programa_id',    p.id,
+              'nombre',         p.nombre,
+              'tipo_programa',  p.tipo_programa,
               'duracion_meses', p.duracion_meses
             )
           ) FILTER (WHERE p.id IS NOT NULL),
           '[]'::json
         ) AS programas_asociados
-
-      FROM
-        students s
-      LEFT JOIN users u ON s.coordinador_id = u.id
+      FROM students s
       LEFT JOIN estudiante_programas ep ON s.id = ep.estudiante_id
       LEFT JOIN programas p ON ep.programa_id = p.id
-
       ${whereClause}
-
-      GROUP BY
-        s.id, u.name
-      ORDER BY
-        s.created_at DESC;
+      GROUP BY s.id
+      ORDER BY s.created_at DESC;
     `;
 
     const { rows } = await pool.query(query, queryParams);
@@ -935,6 +861,40 @@ const getStudentsByProgramTypeController = async (req, res) => {
   }
 };
 
+
+// =======================================================
+// LÓGICA DE GRADUACIÓN (PUT /students/:id/graduate)
+// =======================================================
+export const graduateStudentController = async (req, res) => {
+  const studentId = parseInt(req.params.id, 10);
+  if (!studentId || isNaN(studentId)) {
+    return res.status(400).json({ error: 'ID de estudiante inválido.' });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE students
+       SET fecha_graduacion = CURRENT_TIMESTAMP,
+           activo           = false,
+           updated_at       = CURRENT_TIMESTAMP
+       WHERE id = $1
+       RETURNING id, nombre, apellido, fecha_graduacion`,
+      [studentId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Estudiante no encontrado.' });
+    }
+
+    return res.status(200).json({
+      message: 'Estudiante marcado como graduado exitosamente.',
+      student: result.rows[0],
+    });
+  } catch (err) {
+    console.error('Error al graduar estudiante:', err);
+    return handleServerError(res, err, 'Error interno al graduar el estudiante.');
+  }
+};
 
 export const updatePosibleGraduacionStudentController = async (req, res) => {
   const { id } = req.params;
@@ -1140,11 +1100,9 @@ export const deleteStudentDocumentController = async (req, res) => {
 
 
 export {
-
   deleteStudentController,
   updateEstadoStudentController,
-  // Renombre y consolidación de controladores de filtrado
-  getStudentsByProgramaIdController, // Nuevo controlador para filtrar por ID de programa específico
-  getStudentsByProgramTypeController, // Nuevo controlador para filtrar por tipo de programa (bachillerato/tecnicos)
-  getStudentByDocumentController
+  getStudentsByProgramaIdController,
+  getStudentsByProgramTypeController,
+  getStudentByDocumentController,
 };
