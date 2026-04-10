@@ -1,5 +1,6 @@
-import pool from '../database.js'; // Asegúrate de que esta ruta sea correcta
+import pool from '../database.js';
 import { uploadStudentDocumentToGCS, deleteStudentDocumentFromGCS } from '../services/gcsStudentDocuments.js';
+import { getUsersMapFromAuthService } from '../services/authServiceClient.js';
 
 // Helper para manejar errores de forma consistente
 const handleServerError = (res, err, message) => {
@@ -20,7 +21,8 @@ const insertStudentToDB = async (studentData, res) => {
     telefonoLlamadas, telefonoWhatsapp, simat, pagoMatricula,
     programasIds, coordinador_id, modalidad_estudio, ultimo_curso_visto,
     eps, rh, nombreAcudiente, tipoDocumentoAcudiente,
-    telefonoAcudiente, direccionAcudiente, posibleGraduacion
+    telefonoAcudiente, direccionAcudiente, posibleGraduacion,
+    business_id
   } = studentData;
 
   // 1. Validaciones básicas de integridad
@@ -55,11 +57,12 @@ const insertStudentToDB = async (studentData, res) => {
         telefono_llamadas, telefono_whatsapp, simat, estado_matricula,
         coordinador_id, modalidad_estudio, ultimo_curso_visto,
         eps, rh, nombre_acudiente, tipo_documento_acudiente,
-        telefono_acudiente, direccion_acudiente, posible_graduacion
+        telefono_acudiente, direccion_acudiente, posible_graduacion,
+        business_id
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
         $11, $12, $13, $14, $15, $16, $17, $18, $19,
-        $20, $21, $22
+        $20, $21, $22, $23
       ) RETURNING id;
     `;
 
@@ -69,7 +72,8 @@ const insertStudentToDB = async (studentData, res) => {
       telefonoLlamadas, telefonoWhatsapp, simatBoolean, estadoMatriculaBoolean,
       coordinador_id, modalidad_estudio || null, ultimo_curso_visto || null,
       eps || null, rh || null, nombreAcudiente || null, tipoDocumentoAcudiente || null,
-      telefonoAcudiente || null, direccionAcudiente || null, posibleGraduacionBoolean
+      telefonoAcudiente || null, direccionAcudiente || null, posibleGraduacionBoolean,
+      business_id || null
     ];
 
     const studentResult = await client.query(studentInsertQuery, values);
@@ -112,48 +116,26 @@ const insertStudentToDB = async (studentData, res) => {
 // =======================================================
 export const createStudentAuthenticated = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const userRole = req.user.role;
+    const userId     = req.user.id;
+    const userRole   = req.user.role;
     const businessId = req.user.bid;
 
     if (!businessId) {
       return res.status(400).json({ error: "Token sin business asociado." });
     }
 
-    let finalCoordinatorId;
-
     const isAdmin = userRole === 'admin' || userRole === 'superadmin';
 
-    if (isAdmin && req.body.coordinador_id) {
-      // Admin puede elegir un coordinador del body — verificamos que pertenezca al business activo
-      const coordCheck = await pool.query(
-        'SELECT id FROM users WHERE id = $1 AND business_id = $2',
-        [req.body.coordinador_id, businessId]
-      );
-      if (coordCheck.rows.length === 0) {
-        return res.status(400).json({
-          error: "El coordinador seleccionado no pertenece al negocio activo."
-        });
-      }
-      finalCoordinatorId = req.body.coordinador_id;
-    } else {
-      // No admin (o admin sin coordinador en body): se usa el propio usuario
-      // Verificamos que el usuario pertenezca al business activo
-      const selfCheck = await pool.query(
-        'SELECT id FROM users WHERE id = $1 AND business_id = $2',
-        [userId, businessId]
-      );
-      if (selfCheck.rows.length === 0) {
-        return res.status(400).json({
-          error: "Tu usuario no está registrado en el negocio activo. Selecciona un coordinador del negocio correcto."
-        });
-      }
-      finalCoordinatorId = userId;
-    }
+    // Admin/superadmin: usa coordinador_id del body.
+    // Otros roles: se fuerza su propio userId como coordinador.
+    const finalCoordinatorId = (isAdmin && req.body.coordinador_id)
+      ? req.body.coordinador_id
+      : userId;
 
     const studentData = {
       ...req.body,
-      coordinador_id: finalCoordinatorId
+      coordinador_id: finalCoordinatorId,
+      business_id: businessId          // ← siempre del token
     };
 
     return await insertStudentToDB(studentData, res);
@@ -196,75 +178,65 @@ export const createStudentPublic = async (req, res) => {
 // =======================================================
 export const getStudentsController = async (req, res) => {
   try {
-    // 1. Obtener datos del usuario desde el Token (inyectado por authMiddleware)
-    const userId = req.user?.id;
-    const userRole = req.user?.role;
+    const userId     = req.user?.id;
+    const userRole   = req.user?.role;
     const businessId = req.user?.bid;
 
-    if (!userId) {
-      return res.status(401).json({ error: "Usuario no autenticado." });
-    }
+    if (!userId)     return res.status(401).json({ error: "Usuario no autenticado." });
+    if (!businessId) return res.status(400).json({ error: "Token sin business asociado." });
 
-    if (!businessId) {
-      return res.status(400).json({ error: "Token sin business asociado." });
-    }
-
-    console.log(`Consultando estudiantes. Usuario: ${userId}, Rol: ${userRole}, Business: ${businessId}`);
-
-    // 2. Construcción dinámica de la consulta
     const isAdmin = userRole === 'admin' || userRole === 'superadmin';
-    const conditions = [];
-    const queryParams = [];
-    let paramIndex = 1;
 
-    if (isAdmin) {
-      // Admin/superadmin: todos los estudiantes sin filtro de business
-      // TODO: reemplazar por filtro de business_id cuando coordinadores estén migrados:
-      // conditions.push(`u.business_id = $${paramIndex}`);
-      // queryParams.push(businessId); paramIndex++;
-    } else {
-      // No-admin: solo sus propios estudiantes
-      conditions.push(`s.coordinador_id = $${paramIndex}`);
+    // Siempre filtramos por business_id del token.
+    // Admin/superadmin: todos los estudiantes de ese business.
+    // Otros roles: solo sus estudiantes (por coordinador_id) dentro del business.
+    const conditions  = ['s.business_id = $1'];
+    const queryParams = [businessId];
+
+    if (!isAdmin) {
+      conditions.push('s.coordinador_id = $2');
       queryParams.push(userId);
-      paramIndex++;
     }
 
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
+    // Sin subquery a tabla "users" (no existe en esta BD).
+    // Los nombres de coordinadores se enriquecen en JS vía auth-service.
     const query = `
       SELECT
         s.*,
-        u.name AS coordinador_nombre,
-        -- Lista de programas asociados
         COALESCE(
-          json_agg(
-            json_build_object(
-              'programa_id', p.id,
-              'nombre', p.nombre,
-              'tipo_programa', p.tipo_programa,
+          (
+            SELECT json_agg(json_build_object(
+              'programa_id',    p.id,
+              'nombre',         p.nombre,
+              'tipo_programa',  p.tipo_programa,
               'duracion_meses', p.duracion_meses
-            )
-          ) FILTER (WHERE p.id IS NOT NULL),
+            ))
+            FROM estudiante_programas ep
+            JOIN programas p ON ep.programa_id = p.id
+            WHERE ep.estudiante_id = s.id
+          ),
           '[]'::json
         ) AS programas_asociados
-
-      FROM
-        students s
-      LEFT JOIN users u ON s.coordinador_id = u.id
-      LEFT JOIN estudiante_programas ep ON s.id = ep.estudiante_id
-      LEFT JOIN programas p ON ep.programa_id = p.id
-
+      FROM students s
       ${whereClause}
-
-      GROUP BY
-        s.id, u.name
-      ORDER BY
-        s.created_at DESC;
+      ORDER BY s.created_at DESC;
     `;
 
     const { rows } = await pool.query(query, queryParams);
 
-    return res.status(200).json(rows);
+    // Enriquecer con nombres de coordinadores desde auth-service
+    const authHeader = req.headers['authorization'] || '';
+    const token = authHeader.replace(/^Bearer\s+/i, '');
+    const usersMap = await getUsersMapFromAuthService(token);
+
+    const enrichedRows = rows.map((row) => ({
+      ...row,
+      coordinador_nombre: usersMap.get(Number(row.coordinador_id)) || null,
+    }));
+
+    return res.status(200).json(enrichedRows);
   } catch (err) {
     console.error("Error obteniendo la lista de estudiantes:", err);
     return res
