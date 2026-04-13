@@ -99,11 +99,12 @@ export const getEvaluaciones = async (req, res) => {
         p.nombre AS programa_nombre,
         p.tipo_programa AS programa_tipo,
         m.nombre AS materia_nombre,
-        m.tipo_programa AS materia_tipo,
+        pm.tipo_programa AS materia_tipo,
         COALESCE(qc.total_preguntas, 0) AS total_preguntas
       FROM public.evaluaciones e
-      LEFT JOIN public.programas p ON e.programa_id = p.id
-      LEFT JOIN public.materias m ON e.materia_id = m.id
+      LEFT JOIN public.programas p  ON e.programa_id = p.id
+      LEFT JOIN public.materias m   ON e.materia_id = m.id
+      LEFT JOIN public.programas pm ON m.programa_id = pm.id
       LEFT JOIN (
         SELECT evaluacion_id, COUNT(*) AS total_preguntas
         FROM public.evaluacion_preguntas
@@ -577,6 +578,79 @@ export const asignarAEstudiantesSeleccionados = async (req, res) => {
     return res.status(500).json({ ok: false, message: 'Error al asignar evaluación a estudiantes seleccionados', error: error.message });
   } finally {
     client.release();
+  }
+};
+
+/**
+ * Listar todos los estudiantes asignados a una evaluación (admin)
+ */
+export const getAsignacionesDeEvaluacion = async (req, res) => {
+  const { id: evaluacion_id } = req.params;
+  const businessId = req.user?.bid;
+
+  if (!businessId) {
+    return res.status(403).json({ ok: false, message: 'No se pudo determinar el negocio.' });
+  }
+
+  try {
+    const query = `
+      SELECT
+        ea.id             AS asignacion_id,
+        ea.estudiante_id,
+        ea.estado,
+        ea.calificacion,
+        ea.intentos_realizados,
+        ea.fecha_resuelto,
+        s.nombre,
+        s.apellido,
+        s.numero_documento,
+        p.nombre          AS programa_nombre
+      FROM public.evaluacion_asignaciones ea
+      JOIN public.evaluaciones e  ON e.id = ea.evaluacion_id
+      JOIN public.students s      ON s.id = ea.estudiante_id
+      LEFT JOIN public.estudiante_programas ep ON ep.estudiante_id = s.id
+      LEFT JOIN public.programas p             ON p.id = ep.programa_id AND p.business_id = $2
+      WHERE ea.evaluacion_id = $1
+        AND e.business_id = $2
+      ORDER BY s.apellido, s.nombre;
+    `;
+    const { rows } = await pool.query(query, [evaluacion_id, businessId]);
+    return res.json({ ok: true, asignaciones: rows, total: rows.length });
+  } catch (error) {
+    console.error('Error en getAsignacionesDeEvaluacion:', error);
+    return res.status(500).json({ ok: false, message: 'Error al obtener asignaciones', error: error.message });
+  }
+};
+
+/**
+ * Eliminar asignación de un estudiante a una evaluación (admin)
+ */
+export const removeAsignacion = async (req, res) => {
+  const { id: evaluacion_id, estudianteId } = req.params;
+  const businessId = req.user?.bid;
+
+  if (!businessId) {
+    return res.status(403).json({ ok: false, message: 'No se pudo determinar el negocio.' });
+  }
+
+  try {
+    const query = `
+      DELETE FROM public.evaluacion_asignaciones ea
+      USING public.evaluaciones e
+      WHERE ea.evaluacion_id = $1
+        AND ea.estudiante_id = $2
+        AND e.id = ea.evaluacion_id
+        AND e.business_id = $3
+      RETURNING ea.id;
+    `;
+    const { rows } = await pool.query(query, [evaluacion_id, estudianteId, businessId]);
+    if (rows.length === 0) {
+      return res.status(404).json({ ok: false, message: 'Asignación no encontrada' });
+    }
+    return res.json({ ok: true, message: 'Asignación eliminada correctamente' });
+  } catch (error) {
+    console.error('Error en removeAsignacion:', error);
+    return res.status(500).json({ ok: false, message: 'Error al eliminar asignación', error: error.message });
   }
 };
 

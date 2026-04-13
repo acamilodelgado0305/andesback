@@ -105,13 +105,11 @@ const getGradesByStudentDocumentController = async (req, res) => {
     // - Ya NO usa inventario ni s.programa_id
     // - Programa(s) salen de estudiante_programas + programas
     const studentQuery = `
-      SELECT 
-        s.id, 
-        s.nombre, 
-        s.apellido, 
-        s.numero_documento, 
-        u.name AS coordinador,
-        -- Si tiene varios programas, concatenamos sus nombres en una sola cadena
+      SELECT
+        s.id,
+        s.nombre,
+        s.apellido,
+        s.numero_documento,
         COALESCE(
           (
             SELECT string_agg(p.nombre, ', ' ORDER BY p.nombre)
@@ -121,12 +119,8 @@ const getGradesByStudentDocumentController = async (req, res) => {
           ),
           'No asignado'
         ) AS programa_nombre
-      FROM 
-        students s 
-      LEFT JOIN 
-        users u ON s.coordinador_id = u.id
-      WHERE 
-        TRIM(CAST(s.numero_documento AS TEXT)) = TRIM($1)
+      FROM students s
+      WHERE TRIM(CAST(s.numero_documento AS TEXT)) = TRIM($1)
       LIMIT 1;
     `;
 
@@ -146,7 +140,6 @@ const getGradesByStudentDocumentController = async (req, res) => {
       nombre: studentDataFromDB.nombre,
       apellido: studentDataFromDB.apellido,
       programa_nombre: studentDataFromDB.programa_nombre || "No asignado",
-      coordinador: studentDataFromDB.coordinador || "No asignado",
       documento: studentDataFromDB.numero_documento,
     };
 
@@ -187,9 +180,76 @@ const getGradesByStudentDocumentController = async (req, res) => {
 
 
 
+/**
+ * Obtener estudiantes + calificaciones de un programa (role-aware)
+ * GET /api/grades/programa/:programaId
+ */
+const getGradesByProgramaController = async (req, res) => {
+  const { programaId } = req.params;
+  const businessId = req.user?.bid;
+  const userId     = req.user?.id;
+  const userRole   = req.user?.role;
+
+  if (!businessId) return res.status(403).json({ error: 'No se pudo determinar el negocio.' });
+
+  const isAdmin = userRole === 'admin' || userRole === 'superadmin';
+
+  try {
+    // 1. Obtener info del programa
+    const { rows: programaRows } = await pool.query(
+      `SELECT * FROM programas WHERE id = $1 AND business_id = $2`,
+      [programaId, businessId]
+    );
+    if (programaRows.length === 0) {
+      return res.status(404).json({ error: 'Programa no encontrado.' });
+    }
+    const programa = programaRows[0];
+
+    // 2. Obtener estudiantes en este programa (con filtro de rol)
+    const studentsParams = [programaId, businessId];
+    let coordinadorFilter = '';
+    if (!isAdmin) {
+      coordinadorFilter = `AND s.coordinador_id = $3`;
+      studentsParams.push(userId);
+    }
+
+    const studentsQuery = `
+      SELECT DISTINCT
+        s.id, s.nombre, s.apellido, s.numero_documento
+      FROM students s
+      JOIN estudiante_programas ep ON ep.estudiante_id = s.id
+      WHERE ep.programa_id = $1
+        AND s.business_id = $2
+        ${coordinadorFilter}
+      ORDER BY s.apellido, s.nombre
+    `;
+    const { rows: students } = await pool.query(studentsQuery, studentsParams);
+
+    // 3. Obtener calificaciones existentes para estos estudiantes en este programa
+    const studentIds = students.map(s => s.id);
+    let grades = [];
+    if (studentIds.length > 0) {
+      const { rows } = await pool.query(
+        `SELECT student_id, materia, nota
+         FROM grades
+         WHERE student_id = ANY($1::int[])
+           AND programa = $2`,
+        [studentIds, programa.nombre]
+      );
+      grades = rows;
+    }
+
+    return res.json({ programa, students, grades });
+  } catch (err) {
+    console.error('Error en getGradesByProgramaController:', err);
+    return res.status(500).json({ error: 'Error obteniendo calificaciones del programa.' });
+  }
+};
+
 export {
     getGradesController,
     saveGradesController,
     getGradesByStudentIdController,
-    getGradesByStudentDocumentController
+    getGradesByStudentDocumentController,
+    getGradesByProgramaController,
 };

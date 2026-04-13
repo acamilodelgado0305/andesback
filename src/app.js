@@ -12,6 +12,7 @@ import CertificadosRouter from "./routes/certificadoRoutes.js"
 import adminrRoutes from './routes/admin/adminRoutes.js'
 import docentesRouter from './routes/docentesRouter.js'
 import materiasRouter from './routes/materiasRouter.js'
+import horariosRouter from './routes/horariosRouter.js'
 import evaluacionesRouter from "./routes/evaluacionesRouter.js"
 import programasRoutes from "./routes/programasRoutes.js"
 import studentAuthRouter from "./routes/studentAuthRoutes.js"
@@ -53,6 +54,7 @@ app.use('/api',  GradesRouter);
 app.use('/api',  adminrRoutes);
 app.use('/api',  docentesRouter);
 app.use('/api',  materiasRouter);
+app.use('/api',  horariosRouter);
 app.use('/api', evaluacionesRouter);
 
 app.use('/api/student-portal', studentAuthRouter);

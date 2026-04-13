@@ -15,7 +15,8 @@ import {
   graduateStudentController,
   uploadStudentDocumentController,
   getStudentDocumentsController,
-  deleteStudentDocumentController
+  deleteStudentDocumentController,
+  bulkMoveToPrograma,
 } from '../controllers/studentController.js';
 
 import { authMiddleware } from '../middlewares/authMiddleware.js';
@@ -77,6 +78,9 @@ router.put('/students/:id', updateStudentController);
 
 // DELETE: Eliminar un estudiante por su ID
 router.delete('/students/:id', deleteStudentController);
+
+// POST: Mover masivamente estudiantes a un programa
+router.post('/students/bulk-move-programa', authMiddleware, bulkMoveToPrograma);
 
 // POST: Subir archivo de estudiantes
 router.post('/upload-students', upload.single('file'), uploadStudentsController);

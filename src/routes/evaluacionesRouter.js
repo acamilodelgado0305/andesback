@@ -15,6 +15,9 @@ import {
   deleteOpcion,
   asignarPorProgramaPrincipal,
   asignarPorEstudianteProgramas,
+  asignarAEstudiantesSeleccionados,
+  getAsignacionesDeEvaluacion,
+  removeAsignacion,
   getEvaluacionesDeEstudiante,
   getAsignacionDetalleParaResponder,
   responderEvaluacion,
@@ -40,8 +43,11 @@ router.put('/evaluaciones/:id', updateEvaluacion);
 router.delete('/evaluaciones/:id', deleteEvaluacion);
 
 // Asignaciones
+router.get('/evaluaciones/:id/asignaciones', getAsignacionesDeEvaluacion);
+router.delete('/evaluaciones/:id/asignaciones/:estudianteId', removeAsignacion);
 router.post('/evaluaciones/:id/asignar/programa-principal', asignarPorProgramaPrincipal);
 router.post('/evaluaciones/:id/asignar/estudiante-programas', asignarPorEstudianteProgramas);
+router.post('/evaluaciones/:id/asignar/estudiantes', asignarAEstudiantesSeleccionados);
 
 // Preguntas y opciones
 router.post('/evaluaciones/:id/preguntas', addPreguntaConOpciones);

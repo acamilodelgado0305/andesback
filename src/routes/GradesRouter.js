@@ -1,11 +1,17 @@
 import express from 'express';
 import {
   getGradesController,
-  saveGradesController, // Nuevo controlador
+  saveGradesController,
+  getGradesByProgramaController,
 } from '../controllers/GradesController.js';
+import { authMiddleware } from '../middlewares/authMiddleware.js';
+
 const router = express.Router();
 
-router.get('/grades', getGradesController); // Nueva ruta
-router.post('/grades', saveGradesController); // Nueva ruta
+router.use(authMiddleware);
+
+router.get('/grades', getGradesController);
+router.post('/grades', saveGradesController);
+router.get('/grades/programa/:programaId', getGradesByProgramaController);
 
 export default router;

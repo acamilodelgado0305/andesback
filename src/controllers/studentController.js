@@ -1099,6 +1099,66 @@ export const deleteStudentDocumentController = async (req, res) => {
 
 
 
+// ============================================================
+// BULK: Mover lista de estudiantes a un programa
+// POST /api/students/bulk-move-programa
+// Body: { estudiante_ids: [1,2,3], programa_id: 5, replace: true|false }
+//   replace=true  → reemplaza TODOS los programas del estudiante por el nuevo
+//   replace=false → agrega el nuevo programa sin quitar los anteriores
+// ============================================================
+export const bulkMoveToPrograma = async (req, res) => {
+  const { estudiante_ids, programa_id, replace = true } = req.body;
+  const businessId = req.user?.bid;
+
+  if (!Array.isArray(estudiante_ids) || estudiante_ids.length === 0) {
+    return res.status(400).json({ error: 'Debes enviar al menos un estudiante_id.' });
+  }
+  if (!programa_id) {
+    return res.status(400).json({ error: 'programa_id es requerido.' });
+  }
+  if (!businessId) {
+    return res.status(403).json({ error: 'No se pudo determinar el negocio.' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    for (const id of estudiante_ids) {
+      if (replace) {
+        // Remove all current programs for this student (within business)
+        await client.query(
+          `DELETE FROM estudiante_programas
+           WHERE estudiante_id = $1
+             AND programa_id IN (
+               SELECT id FROM programas WHERE business_id = $2
+             )`,
+          [id, businessId]
+        );
+      }
+      // Insert new program (ignore if already exists)
+      await client.query(
+        `INSERT INTO estudiante_programas (estudiante_id, programa_id)
+         VALUES ($1, $2)
+         ON CONFLICT (estudiante_id, programa_id) DO NOTHING`,
+        [id, programa_id]
+      );
+    }
+
+    await client.query('COMMIT');
+    return res.status(200).json({
+      message: `${estudiante_ids.length} estudiante(s) movido(s) al programa correctamente.`,
+      affected: estudiante_ids.length,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error en bulkMoveToPrograma:', err);
+    return res.status(500).json({ error: 'Error interno al mover estudiantes.' });
+  } finally {
+    client.release();
+  }
+};
+
 export {
   deleteStudentController,
   updateEstadoStudentController,
