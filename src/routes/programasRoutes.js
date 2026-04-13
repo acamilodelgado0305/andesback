@@ -7,28 +7,17 @@ import {
   updatePrograma,
   deletePrograma,
 } from "../controllers/programasController.js";
-
-
-import { authMiddleware } from '../middlewares/authMiddleware.js';
+import { authMiddleware, optionalAuthMiddleware } from "../middlewares/authMiddleware.js";
 
 const router = express.Router();
 
-// Crear programa
+// GET: optionalAuth — si hay token filtra por business, si no devuelve todos (formularios públicos)
+router.get("/programas",     optionalAuthMiddleware, getProgramas);
+router.get("/programas/:id", optionalAuthMiddleware, getProgramaById);
 
-
-router.get("/programas", getProgramas);
-router.get("/programas/:id", getProgramaById);
-
-// Listar programas (con filtros opcionales ?tipo_programa=...&activo=true/false)
-
-router.post("/programas", createPrograma);
-// Obtener programa por ID
-
-
-// Actualizar programa
-router.put("/programas/:id", updatePrograma);
-
-// Desactivar programa (borrado lógico)
-router.delete("/programas/:id", deletePrograma);
+// Escritura: siempre requiere autenticación y business_id del token
+router.post("/programas",        authMiddleware, createPrograma);
+router.put("/programas/:id",     authMiddleware, updatePrograma);
+router.delete("/programas/:id",  authMiddleware, deletePrograma);
 
 export default router;

@@ -1,6 +1,38 @@
 // src/middleware/authMiddleware.js
 import jwt from "jsonwebtoken";
 
+/**
+ * Middleware opcional: extrae el usuario del token si está presente,
+ * pero no falla si no hay token. Usado en rutas mixtas (público + autenticado).
+ */
+export const optionalAuthMiddleware = (req, res, next) => {
+  try {
+    const authHeader = req.headers["authorization"] || req.headers["Authorization"];
+    if (!authHeader || !authHeader.startsWith("Bearer ")) return next();
+
+    const token = authHeader.split(" ")[1];
+    if (!token) return next();
+
+    const secret = process.env.JWT_SECRET;
+    if (!secret) return next();
+
+    const decoded = jwt.verify(token, secret);
+    if (decoded.sub) {
+      req.user = {
+        id: decoded.sub,
+        name: decoded.name,
+        role: decoded.role,
+        bid: decoded.bid,
+        scope: decoded.scope,
+        raw: decoded,
+      };
+    }
+  } catch {
+    // Token inválido o expirado — continuamos sin usuario
+  }
+  next();
+};
+
 export const authMiddleware = (req, res, next) => {
     try {
         const authHeader = req.headers["authorization"] || req.headers["Authorization"];

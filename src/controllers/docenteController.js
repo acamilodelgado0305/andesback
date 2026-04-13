@@ -1,28 +1,28 @@
-import pool from '../database.js'; // Asegúrate de que esta ruta sea correcta
-
+import pool from '../database.js';
 
 // --- CREATE ---
-/**
- * @description Crea un nuevo docente.
- */
 export const createDocente = async (req, res) => {
-  const { nombre_completo, email, especialidad } = req.body;
+  const businessId = req.user?.bid;
+  if (!businessId) {
+    return res.status(400).json({ message: 'Token sin business asociado.' });
+  }
 
+  const { nombre_completo, email, especialidad } = req.body;
   if (!nombre_completo || !email) {
     return res.status(400).json({ message: 'El nombre completo y el email son obligatorios.' });
   }
 
   try {
-    const query = `
-      INSERT INTO "public"."docentes" (nombre_completo, email, especialidad)
-      VALUES ($1, $2, $3)
-      RETURNING *;
-    `;
-    const result = await pool.query(query, [nombre_completo, email, especialidad]);
+    const result = await pool.query(
+      `INSERT INTO docentes (nombre_completo, email, especialidad, business_id)
+       VALUES ($1, $2, $3, $4)
+       RETURNING *;`,
+      [nombre_completo, email, especialidad || null, businessId]
+    );
     return res.status(201).json(result.rows[0]);
   } catch (error) {
     if (error.code === '23505') {
-      return res.status(409).json({ message: `El email '${email}' ya existe.` });
+      return res.status(409).json({ message: `El email '${email}' ya existe en este negocio.` });
     }
     console.error('Error al crear docente:', error);
     return res.status(500).json({ message: 'Error interno del servidor.' });
@@ -30,13 +30,17 @@ export const createDocente = async (req, res) => {
 };
 
 // --- READ (ALL) ---
-/**
- * @description Obtiene todos los docentes de la base de datos.
- */
 export const getAllDocentes = async (req, res) => {
+  const businessId = req.user?.bid;
+  if (!businessId) {
+    return res.status(400).json({ message: 'Token sin business asociado.' });
+  }
+
   try {
-    const query = 'SELECT * FROM "public"."docentes" ORDER BY id ASC;';
-    const result = await pool.query(query);
+    const result = await pool.query(
+      `SELECT * FROM docentes WHERE business_id = $1 ORDER BY nombre_completo ASC;`,
+      [businessId]
+    );
     return res.status(200).json(result.rows);
   } catch (error) {
     console.error('Error al obtener docentes:', error);
@@ -45,15 +49,15 @@ export const getAllDocentes = async (req, res) => {
 };
 
 // --- READ (ONE) ---
-/**
- * @description Obtiene un solo docente por su ID.
- */
 export const getDocenteById = async (req, res) => {
+  const businessId = req.user?.bid;
   const { id } = req.params;
-  try {
-    const query = 'SELECT * FROM "public"."docentes" WHERE id = $1;';
-    const result = await pool.query(query, [id]);
 
+  try {
+    const result = await pool.query(
+      `SELECT * FROM docentes WHERE id = $1 AND business_id = $2;`,
+      [id, businessId]
+    );
     if (result.rowCount === 0) {
       return res.status(404).json({ message: `Docente con ID ${id} no encontrado.` });
     }
@@ -65,10 +69,8 @@ export const getDocenteById = async (req, res) => {
 };
 
 // --- UPDATE ---
-/**
- * @description Actualiza la información de un docente existente.
- */
 export const updateDocente = async (req, res) => {
+  const businessId = req.user?.bid;
   const { id } = req.params;
   const { nombre_completo, email, especialidad } = req.body;
 
@@ -77,18 +79,16 @@ export const updateDocente = async (req, res) => {
   }
 
   try {
-    const query = `
-      UPDATE "public"."docentes"
-      SET 
-        nombre_completo = $1, 
-        email = $2, 
-        especialidad = $3,
-        updated_at = CURRENT_TIMESTAMP
-      WHERE 
-        id = $4
-      RETURNING *;
-    `;
-    const result = await pool.query(query, [nombre_completo, email, especialidad, id]);
+    const result = await pool.query(
+      `UPDATE docentes
+       SET nombre_completo = $1,
+           email           = $2,
+           especialidad    = $3,
+           updated_at      = CURRENT_TIMESTAMP
+       WHERE id = $4 AND business_id = $5
+       RETURNING *;`,
+      [nombre_completo, email, especialidad || null, id, businessId]
+    );
 
     if (result.rowCount === 0) {
       return res.status(404).json({ message: `Docente con ID ${id} no encontrado.` });
@@ -104,21 +104,19 @@ export const updateDocente = async (req, res) => {
 };
 
 // --- DELETE ---
-/**
- * @description Elimina un docente de la base de datos.
- */
 export const deleteDocente = async (req, res) => {
+  const businessId = req.user?.bid;
   const { id } = req.params;
-  try {
-    const query = 'DELETE FROM "public"."docentes" WHERE id = $1;';
-    const result = await pool.query(query, [id]);
 
+  try {
+    const result = await pool.query(
+      `DELETE FROM docentes WHERE id = $1 AND business_id = $2;`,
+      [id, businessId]
+    );
     if (result.rowCount === 0) {
       return res.status(404).json({ message: `Docente con ID ${id} no encontrado.` });
     }
-    
-    // El código 204 "No Content" es el estándar para una eliminación exitosa.
-    return res.sendStatus(204); 
+    return res.sendStatus(204);
   } catch (error) {
     console.error(`Error al eliminar docente ${id}:`, error);
     return res.status(500).json({ message: 'Error interno del servidor.' });

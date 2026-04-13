@@ -4,32 +4,18 @@ import {
   getAllDocentes,
   getDocenteById,
   updateDocente,
-  deleteDocente
+  deleteDocente,
 } from '../controllers/docenteController.js';
+import { authMiddleware } from '../middlewares/authMiddleware.js';
 
 const router = Router();
 
-// --- RUTAS PARA DOCENTES ---
+router.use(authMiddleware); // Protege todas las rutas de docentes
 
-// [GET] Obtener todos los docentes
-// http://localhost:3000/api/docentes
-router.get('/docentes', getAllDocentes);
-
-// [GET] Obtener un solo docente por su ID
-// http://localhost:3000/api/docentes/1
-router.get('/docentes/:id', getDocenteById);
-
-// [POST] Crear un nuevo docente
-// http://localhost:3000/api/docentes
-router.post('/docentes', createDocente);
-
-// [PUT] Actualizar un docente existente por su ID
-// http://localhost:3000/api/docentes/1
-router.put('/docentes/:id', updateDocente);
-
-// [DELETE] Eliminar un docente por su ID
-// http://localhost:3000/api/docentes/1
+router.get('/docentes',      getAllDocentes);
+router.get('/docentes/:id',  getDocenteById);
+router.post('/docentes',     createDocente);
+router.put('/docentes/:id',  updateDocente);
 router.delete('/docentes/:id', deleteDocente);
-
 
 export default router;
