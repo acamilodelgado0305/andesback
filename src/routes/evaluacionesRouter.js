@@ -1,6 +1,7 @@
 // src/routes/evaluacionesRouter.js
 import express from 'express';
 import { authMiddleware } from '../middlewares/authMiddleware.js';
+import { flexAuthMiddleware } from '../middlewares/flexAuthMiddleware.js';
 import {
   createEvaluacion,
   getEvaluaciones,
@@ -25,11 +26,12 @@ import {
 
 const router = express.Router();
 
-// =================== RUTAS PARA ESTUDIANTES (sin auth requerida) ===================
+// =================== RUTAS PARA ESTUDIANTES (acepta token admin O token estudiante) ===================
 
-router.get('/evaluaciones/estudiantes/:estudianteId/asignaciones', getEvaluacionesDeEstudiante);
-router.get('/evaluaciones/asignaciones/:asignacionId', getAsignacionDetalleParaResponder);
-router.post('/evaluaciones/asignaciones/:asignacionId/respuestas', responderEvaluacion);
+router.get('/evaluaciones/estudiantes/:estudianteId/asignaciones', flexAuthMiddleware, getEvaluacionesDeEstudiante);
+router.get('/evaluaciones/asignaciones/:asignacionId', flexAuthMiddleware, getAsignacionDetalleParaResponder);
+router.post('/evaluaciones/asignaciones/:asignacionId/respuestas', flexAuthMiddleware, responderEvaluacion);
+
 
 // =================== RUTAS ADMIN (requieren authMiddleware) ===================
 

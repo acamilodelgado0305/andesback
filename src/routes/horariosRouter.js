@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middlewares/authMiddleware.js';
+import { flexAuthMiddleware } from '../middlewares/flexAuthMiddleware.js';
 import {
   createHorario,
   getHorariosByMateria,
@@ -13,8 +14,9 @@ import {
 
 const router = Router();
 
-// Pública: el portal del estudiante la llama sin token admin
-router.get('/horarios/estudiante/:estudianteId', getHorariosByEstudiante);
+// Ruta estudiante: acepta token admin O token estudiante
+router.get('/horarios/estudiante/:estudianteId', flexAuthMiddleware, getHorariosByEstudiante);
+
 
 // Todas las demás rutas requieren autenticación admin
 router.use(authMiddleware);

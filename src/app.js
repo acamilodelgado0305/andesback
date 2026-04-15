@@ -34,35 +34,33 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Middleware para manejar errores
-app.use((err, req, res, next) => {
-    console.error('Error:', err.message);
-    res.status(500).send('Error interno del servidor'); 
-});
-
+// ─── Rutas PÚBLICAS del portal de estudiantes (SIN autenticación) ───
+// IMPORTANTE: Debe ir ANTES de cualquier router que use authMiddleware global
+app.use('/api/student-portal', studentAuthRouter);
 
 // Rutas públicas (sin protección)
 app.use('/api', authRouter);
-app.use('/api', programasRoutes)
-app.use('/api',  CertificadosRouter);
-;
+app.use('/api', programasRoutes);
+app.use('/api', CertificadosRouter);
 app.use('/api', RegistroRouter);
-app.use('/api',  facturaRouter);
-app.use('/api',  subjectRouter);
-app.use('/api',  GradesRouter);
+app.use('/api', facturaRouter);
+app.use('/api', subjectRouter);
+app.use('/api', GradesRouter);
 
-app.use('/api',  adminrRoutes);
-app.use('/api',  docentesRouter);
-app.use('/api',  materiasRouter);
-app.use('/api',  horariosRouter);
+app.use('/api', adminrRoutes);
+app.use('/api', docentesRouter);
+app.use('/api', materiasRouter);
+app.use('/api', horariosRouter);
 app.use('/api', evaluacionesRouter);
-
-app.use('/api/student-portal', studentAuthRouter);
 
 // Rutas protegidas (requieren autenticación con token)
 app.use('/api', StudentRouter);
-app.use('/api',  InventarioRouter);
+app.use('/api', InventarioRouter);
 
-
+// Middleware para manejar errores (DEBE ir al final, después de todas las rutas)
+app.use((err, req, res, next) => {
+    console.error('Error:', err.message);
+    res.status(500).send('Error interno del servidor');
+});
 
 export default app;

@@ -47,6 +47,16 @@ export const authMiddleware = (req, res, next) => {
             return res.status(401).json({ message: "Token no proporcionado" });
         }
 
+        // ─── Detección de token de estudiante ───
+        // Decodificamos SIN verificar para detectar el tipo de token.
+        // Si es un token de estudiante (tiene studentId, no tiene sub),
+        // saltamos este router con next('router') para que la petición
+        // llegue al router correcto con flexAuthMiddleware.
+        const unverified = jwt.decode(token);
+        if (unverified && unverified.studentId && !unverified.sub) {
+            return next('router');
+        }
+
         const secret = process.env.JWT_SECRET;
         if (!secret) {
             console.error("JWT_SECRET no está definido en las variables de entorno");
@@ -78,3 +88,4 @@ export const authMiddleware = (req, res, next) => {
         return res.status(401).json({ message: "Token inválido o expirado" });
     }
 };
+

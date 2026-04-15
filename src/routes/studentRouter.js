@@ -21,7 +21,7 @@ import {
 
 import { authMiddleware } from '../middlewares/authMiddleware.js';
 
-import { getGradesByStudentIdController, getGradesByStudentDocumentController } from '../controllers/GradesController.js';
+
 
 import { uploadStudentsController } from "../controllers/uploadStudentsController.js";
 import upload from "../uploadMiddleware.js";
@@ -87,15 +87,8 @@ router.post('/upload-students', upload.single('file'), uploadStudentsController)
 
 
 
-// =======================================================
-// RUTAS DE CALIFICACIONES (GRADES) - (ya las tenías bien)
-// =======================================================
-
-// GET: Obtener calificaciones de un estudiante por su ID
-router.get('/grades/students/:id', getGradesByStudentIdController);
-
-// GET: Obtener calificaciones de un estudiante por su número de documento
-router.get('/grades/student/:numero_documento', getGradesByStudentDocumentController);
+// NOTA: Las rutas de calificaciones por estudiante se movieron a GradesRouter.js
+// para que estén antes del authMiddleware global y sean accesibles desde el portal estudiantil.
 
 // PATCH /students/:id/posible-graduacion
 router.patch('/students/:id/posible-graduacion', updatePosibleGraduacionStudentController);
