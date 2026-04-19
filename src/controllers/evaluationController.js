@@ -681,6 +681,15 @@ export const getEvaluacionesDeEstudiante = async (req, res) => {
         AND e.activa = TRUE
         AND (e.fecha_inicio IS NULL OR e.fecha_inicio <= NOW())
         AND (e.fecha_fin IS NULL OR e.fecha_fin >= NOW())
+        AND (
+          e.programa_id IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM public.estudiante_programas ep
+            WHERE ep.estudiante_id = ea.estudiante_id
+              AND ep.programa_id = e.programa_id
+          )
+        )
       ORDER BY ea.estado, ea.id DESC;
     `;
     const { rows } = await pool.query(query, [estudianteId]);
