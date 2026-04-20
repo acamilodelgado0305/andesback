@@ -28,9 +28,26 @@ app.set('port', PORT);
 
 // Incluye los módulos necesarios para la autenticación
 app.use(cookieParser());
+const ALLOWED_ORIGINS = [
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'http://localhost:3000',
+    'https://andesfront.onrender.com',
+    'https://quickcontrola.com',
+    'https://rapictrl.com',
+    'https://santasofia.vercel.app',
+];
+
 app.use(cors({
     credentials: true,
-    origin: ['http://localhost:5173', 'https://andesfront.onrender.com', 'https://quickcontrola.com', 'https://rapictrl.com', 'https://santasofia.vercel.app']
+    origin: (origin, callback) => {
+        // Permite requests sin origin (Postman, mobile apps, same-origin)
+        if (!origin || ALLOWED_ORIGINS.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error(`CORS bloqueado: ${origin}`));
+        }
+    }
 }));
 app.use(express.json());
 

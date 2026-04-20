@@ -10,12 +10,10 @@ import {
 
 const router = Router();
 
-router.use(authMiddleware);
-
-router.get('/materias', getAllMaterias);
-router.get('/materias/:id', getMateriaById);
-router.post('/materias', createMateria);
-router.put('/materias/:id', updateMateria);
-router.delete('/materias/:id', deleteMateria);
+router.get('/materias', authMiddleware, getAllMaterias);
+router.get('/materias/:id', authMiddleware, getMateriaById);
+router.post('/materias', authMiddleware, createMateria);
+router.put('/materias/:id', authMiddleware, updateMateria);
+router.delete('/materias/:id', authMiddleware, deleteMateria);
 
 export default router;

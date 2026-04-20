@@ -35,28 +35,26 @@ router.post('/evaluaciones/asignaciones/:asignacionId/respuestas', flexAuthMiddl
 
 // =================== RUTAS ADMIN (requieren authMiddleware) ===================
 
-router.use(authMiddleware);
-
 // CRUD Evaluaciones
-router.get('/evaluaciones', getEvaluaciones);
-router.get('/evaluaciones/evaluaciones/:id', getEvaluacionById);
-router.post('/evaluaciones', createEvaluacion);
-router.put('/evaluaciones/:id', updateEvaluacion);
-router.delete('/evaluaciones/:id', deleteEvaluacion);
+router.get('/evaluaciones', authMiddleware, getEvaluaciones);
+router.get('/evaluaciones/evaluaciones/:id', authMiddleware, getEvaluacionById);
+router.post('/evaluaciones', authMiddleware, createEvaluacion);
+router.put('/evaluaciones/:id', authMiddleware, updateEvaluacion);
+router.delete('/evaluaciones/:id', authMiddleware, deleteEvaluacion);
 
 // Asignaciones
-router.get('/evaluaciones/:id/asignaciones', getAsignacionesDeEvaluacion);
-router.delete('/evaluaciones/:id/asignaciones/:estudianteId', removeAsignacion);
-router.post('/evaluaciones/:id/asignar/programa-principal', asignarPorProgramaPrincipal);
-router.post('/evaluaciones/:id/asignar/estudiante-programas', asignarPorEstudianteProgramas);
-router.post('/evaluaciones/:id/asignar/estudiantes', asignarAEstudiantesSeleccionados);
+router.get('/evaluaciones/:id/asignaciones', authMiddleware, getAsignacionesDeEvaluacion);
+router.delete('/evaluaciones/:id/asignaciones/:estudianteId', authMiddleware, removeAsignacion);
+router.post('/evaluaciones/:id/asignar/programa-principal', authMiddleware, asignarPorProgramaPrincipal);
+router.post('/evaluaciones/:id/asignar/estudiante-programas', authMiddleware, asignarPorEstudianteProgramas);
+router.post('/evaluaciones/:id/asignar/estudiantes', authMiddleware, asignarAEstudiantesSeleccionados);
 
 // Preguntas y opciones
-router.post('/evaluaciones/:id/preguntas', addPreguntaConOpciones);
-router.put('/evaluaciones/preguntas/:preguntaId', updatePregunta);
-router.delete('/preguntas/:preguntaId', deletePregunta);
-router.post('/evaluaciones/preguntas/:preguntaId/opciones', addOpcion);
-router.put('/evaluaciones/opciones/:opcionId', updateOpcion);
-router.delete('/evaluaciones/opciones/:opcionId', deleteOpcion);
+router.post('/evaluaciones/:id/preguntas', authMiddleware, addPreguntaConOpciones);
+router.put('/evaluaciones/preguntas/:preguntaId', authMiddleware, updatePregunta);
+router.delete('/preguntas/:preguntaId', authMiddleware, deletePregunta);
+router.post('/evaluaciones/preguntas/:preguntaId/opciones', authMiddleware, addOpcion);
+router.put('/evaluaciones/opciones/:opcionId', authMiddleware, updateOpcion);
+router.delete('/evaluaciones/opciones/:opcionId', authMiddleware, deleteOpcion);
 
 export default router;

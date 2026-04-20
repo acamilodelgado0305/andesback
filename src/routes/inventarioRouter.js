@@ -20,28 +20,12 @@ const upload = multer({
     limits: { fileSize: 10 * 1024 * 1024 } // Opcional: Límite de 5MB por foto
 });
 
-// --- MIDDLEWARE DE PROTECCIÓN GLOBAL ---
-router.use(authMiddleware);
-
 // --- RUTAS DE INVENTARIO ---
-
-// Obtener todos los productos (Sin cambios)
-router.get('/inventario', getInventario);
-
-// Crear nuevo producto (Agregamos upload.single('imagen'))
-// 'imagen' es el nombre del campo (key) que debes usar en Postman/React
-router.post('/inventario', upload.single('imagen'), createInventarioItem);
-
-// Actualizar producto por ID (Agregamos upload.single('imagen'))
-router.put('/inventario/:id', upload.single('imagen'), updateInventarioItem);
-
-// Eliminar producto por ID (Sin cambios)
-router.delete('/inventario/:id', deleteInventarioItem);
-
-// Eliminar múltiples productos (Sin cambios)
-router.delete('/inventario/', deleteInventarioItem);
-
-// Ruta para admin (Sin cambios)
-router.get('/user/:userId', getInventarioByUserId);
+router.get('/inventario', authMiddleware, getInventario);
+router.post('/inventario', authMiddleware, upload.single('imagen'), createInventarioItem);
+router.put('/inventario/:id', authMiddleware, upload.single('imagen'), updateInventarioItem);
+router.delete('/inventario/:id', authMiddleware, deleteInventarioItem);
+router.delete('/inventario/', authMiddleware, deleteInventarioItem);
+router.get('/user/:userId', authMiddleware, getInventarioByUserId);
 
 export default router;

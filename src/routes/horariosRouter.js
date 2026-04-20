@@ -19,17 +19,14 @@ router.get('/horarios/estudiante/:estudianteId', flexAuthMiddleware, getHorarios
 
 
 // Todas las demás rutas requieren autenticación admin
-router.use(authMiddleware);
-
-// Slots de una materia
-router.get('/horarios', getHorariosByMateria);                              // ?materia_id=X
-router.post('/horarios', createHorario);
-router.put('/horarios/:id', updateHorario);
-router.delete('/horarios/:id', deleteHorario);
+router.get('/horarios', authMiddleware, getHorariosByMateria);
+router.post('/horarios', authMiddleware, createHorario);
+router.put('/horarios/:id', authMiddleware, updateHorario);
+router.delete('/horarios/:id', authMiddleware, deleteHorario);
 
 // Estudiantes en un slot
-router.get('/horarios/:id/estudiantes', getEstudiantesDeHorario);
-router.post('/horarios/:id/estudiantes', asignarEstudiantes);
-router.delete('/horarios/:id/estudiantes/:estudianteId', desasignarEstudiante);
+router.get('/horarios/:id/estudiantes', authMiddleware, getEstudiantesDeHorario);
+router.post('/horarios/:id/estudiantes', authMiddleware, asignarEstudiantes);
+router.delete('/horarios/:id/estudiantes/:estudianteId', authMiddleware, desasignarEstudiante);
 
 export default router;

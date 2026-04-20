@@ -16,11 +16,9 @@ router.get('/grades/students/:id', flexAuthMiddleware, getGradesByStudentIdContr
 router.get('/grades/student/:numero_documento', flexAuthMiddleware, getGradesByStudentDocumentController);
 
 // =================== RUTAS ADMIN (requieren authMiddleware) ===================
-router.use(authMiddleware);
-
-router.get('/grades', getGradesController);
-router.post('/grades', saveGradesController);
-router.get('/grades/programa/:programaId', getGradesByProgramaController);
+router.get('/grades', authMiddleware, getGradesController);
+router.post('/grades', authMiddleware, saveGradesController);
+router.get('/grades/programa/:programaId', authMiddleware, getGradesByProgramaController);
 
 export default router;
 

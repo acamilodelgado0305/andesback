@@ -10,12 +10,10 @@ import { authMiddleware } from '../middlewares/authMiddleware.js';
 
 const router = Router();
 
-router.use(authMiddleware); // Protege todas las rutas de docentes
-
-router.get('/docentes',      getAllDocentes);
-router.get('/docentes/:id',  getDocenteById);
-router.post('/docentes',     createDocente);
-router.put('/docentes/:id',  updateDocente);
-router.delete('/docentes/:id', deleteDocente);
+router.get('/docentes',        authMiddleware, getAllDocentes);
+router.get('/docentes/:id',    authMiddleware, getDocenteById);
+router.post('/docentes',       authMiddleware, createDocente);
+router.put('/docentes/:id',    authMiddleware, updateDocente);
+router.delete('/docentes/:id', authMiddleware, deleteDocente);
 
 export default router;
