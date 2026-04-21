@@ -16,6 +16,7 @@ import horariosRouter from './routes/horariosRouter.js'
 import evaluacionesRouter from "./routes/evaluacionesRouter.js"
 import programasRoutes from "./routes/programasRoutes.js"
 import studentAuthRouter from "./routes/studentAuthRoutes.js"
+import cierresRouter from "./routes/cierresRouter.js"
 import dotenv from "dotenv";
 
 
@@ -49,7 +50,8 @@ app.use(cors({
         }
     }
 }));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ─── Rutas PÚBLICAS del portal de estudiantes (SIN autenticación) ───
 // IMPORTANTE: Debe ir ANTES de cualquier router que use authMiddleware global
@@ -71,6 +73,7 @@ app.use('/api', horariosRouter);
 app.use('/api', evaluacionesRouter);
 
 // Rutas protegidas (requieren autenticación con token)
+app.use('/api', cierresRouter);
 app.use('/api', StudentRouter);
 app.use('/api', InventarioRouter);
 

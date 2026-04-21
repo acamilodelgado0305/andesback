@@ -527,7 +527,7 @@ export const asignarPorEstudianteProgramas = async (req, res) => {
           WHERE ea.evaluacion_id = $1 AND ea.estudiante_id = ep.estudiante_id
         );
     `;
-    await client.query(insertQuery, [evaluacion_id, programa_id]);
+    await client.query(insertQuery, [parseInt(evaluacion_id), parseInt(programa_id)]);
     await client.query('COMMIT');
 
     return res.json({ ok: true, message: 'Evaluación asignada a estudiantes a través de estudiante_programas' });
@@ -916,9 +916,10 @@ export const responderEvaluacion = async (req, res) => {
     );
 
     const evalMateriaResult = await client.query(
-      `SELECT e.materia_id, m.nombre AS materia_nombre, m.tipo_programa
+      `SELECT e.materia_id, m.nombre AS materia_nombre, p.nombre AS programa_nombre, p.id AS programa_id
        FROM public.evaluaciones e
        LEFT JOIN public.materias m ON m.id = e.materia_id
+       LEFT JOIN public.programas p ON p.id = m.programa_id
        WHERE e.id = $1;`,
       [asignacion.evaluacion_id]
     );
@@ -927,15 +928,27 @@ export const responderEvaluacion = async (req, res) => {
       evalMateriaResult.rows.length > 0 &&
       evalMateriaResult.rows[0].materia_id &&
       evalMateriaResult.rows[0].materia_nombre &&
-      evalMateriaResult.rows[0].tipo_programa
+      evalMateriaResult.rows[0].programa_nombre
     ) {
-      const { materia_nombre, tipo_programa } = evalMateriaResult.rows[0];
+      const { materia_nombre, programa_nombre, programa_id } = evalMateriaResult.rows[0];
+
+      const cierreResult = await client.query(
+        `SELECT id FROM public.cierres WHERE programa_id = $1 AND cerrado = false ORDER BY created_at DESC LIMIT 1;`,
+        [programa_id]
+      );
+      const cierre_id = cierreResult.rows.length > 0 ? cierreResult.rows[0].id : null;
+
       await client.query(
-        `INSERT INTO public.grades (student_id, materia, programa, nota, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, NOW(), NOW())
-         ON CONFLICT (student_id, programa, materia)
-         DO UPDATE SET nota = EXCLUDED.nota, updated_at = NOW();`,
-        [asignacion.estudiante_id, materia_nombre, tipo_programa, notaEscala5]
+        `WITH upsert AS (
+           UPDATE public.grades
+           SET nota = $4, programa = $3, updated_at = NOW()
+           WHERE student_id = $1 AND materia = $2 AND cierre_id IS NOT DISTINCT FROM $5
+           RETURNING id
+         )
+         INSERT INTO public.grades (student_id, materia, programa, nota, cierre_id, created_at, updated_at)
+         SELECT $1, $2, $3, $4, $5, NOW(), NOW()
+         WHERE NOT EXISTS (SELECT 1 FROM upsert);`,
+        [asignacion.estudiante_id, materia_nombre, programa_nombre, notaEscala5, cierre_id]
       );
     }
 

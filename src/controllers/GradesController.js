@@ -3,8 +3,7 @@ import pool from '../database.js';
 const getGradesController = async (req, res) => {
     try {
         const result = await pool.query(
-            `SELECT student_id, materia, nota 
-         FROM grades`
+            `SELECT student_id, materia, nota, cierre_id FROM grades`
         );
         res.status(200).json(result.rows);
     } catch (err) {
@@ -13,45 +12,48 @@ const getGradesController = async (req, res) => {
     }
 };
 
+// Payload: [{ studentId, programa, cierre_id, grades: { materia: nota } }]
 const saveGradesController = async (req, res) => {
-    // El frontend ahora enviará un array de { studentId, programa: "...", grades: { ... } }
     const gradesData = req.body;
 
-    try {
-        await pool.query('BEGIN');
+    // Aplanar a arrays para bulk upsert con UNNEST
+    const studentIds = [], programas = [], materias = [], notas = [], cierreIds = [];
 
-        // -- CAMBIO: Extraemos 'programa' del objeto
-        for (const { studentId, programa, grades } of gradesData) {
-
-            if (!programa) {
-                throw new Error(`Falta el tipo de programa para el estudiante con ID: ${studentId}.`);
-            }
-
-            for (const [materia, nota] of Object.entries(grades)) {
-                if (nota !== null && nota !== undefined) {
-                    await pool.query(
-                        // -- CAMBIO: Añadimos 'programa' a la consulta INSERT
-                        `INSERT INTO grades (student_id, programa, materia, nota, created_at, updated_at)
-                         VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                         -- CAMBIO: El ON CONFLICT ahora usa la nueva llave primaria
-                         ON CONFLICT (student_id, programa, materia)
-                         DO UPDATE SET nota = $4, updated_at = CURRENT_TIMESTAMP`,
-                        // -- CAMBIO: Pasamos 'programa' como segundo parámetro
-                        [studentId, programa, materia, nota]
-                    );
-                }
+    for (const { studentId, programa, cierre_id, grades } of gradesData) {
+        if (!programa) return res.status(400).json({ error: `Falta el programa para estudiante ID: ${studentId}.` });
+        if (!cierre_id) return res.status(400).json({ error: `Falta el cierre_id para estudiante ID: ${studentId}.` });
+        for (const [materia, nota] of Object.entries(grades)) {
+            if (nota !== null && nota !== undefined) {
+                studentIds.push(studentId);
+                programas.push(programa);
+                materias.push(materia);
+                notas.push(nota);
+                cierreIds.push(cierre_id);
             }
         }
+    }
 
-        await pool.query('COMMIT');
+    if (studentIds.length === 0) {
+        return res.status(200).json({ message: 'Sin cambios que guardar' });
+    }
+
+    try {
+        await pool.query(
+            `INSERT INTO grades (student_id, programa, materia, nota, cierre_id, created_at, updated_at)
+             SELECT UNNEST($1::int[]), UNNEST($2::text[]), UNNEST($3::text[]),
+                    UNNEST($4::numeric[]), UNNEST($5::int[]), NOW(), NOW()
+             ON CONFLICT (student_id, materia, cierre_id)
+             DO UPDATE SET nota = EXCLUDED.nota, updated_at = NOW()`,
+            [studentIds, programas, materias, notas, cierreIds]
+        );
         res.status(201).json({ message: 'Notas guardadas exitosamente' });
     } catch (err) {
-        await pool.query('ROLLBACK');
         console.error('Error guardando notas', err);
         res.status(500).json({ error: err.message || 'Error guardando notas' });
     }
 };
 
+// Portal admin: notas de un estudiante por ID (agrupadas por cierre)
 const getGradesByStudentIdController = async (req, res) => {
     const { id } = req.params;
 
@@ -60,25 +62,29 @@ const getGradesByStudentIdController = async (req, res) => {
     }
 
     try {
-        // MODIFICADO: Se une la tabla `grades` con `materias` para filtrar solo las activas.
         const query = `
-            SELECT 
-                g.student_id, 
-                g.materia, 
-                g.nota 
-            FROM 
-                grades g
-            JOIN 
-                materias m ON g.materia = m.nombre
-            WHERE 
-                g.student_id = $1 AND m.activa = true
+            SELECT
+                g.student_id,
+                g.materia,
+                g.nota,
+                c.id       AS cierre_id,
+                c.nombre   AS cierre_nombre,
+                c.cerrado,
+                c.fecha_cierre
+            FROM grades g
+            JOIN cierres c ON g.cierre_id = c.id
+            JOIN materias m ON LOWER(TRIM(g.materia)) = LOWER(TRIM(m.nombre))
+            JOIN estudiante_programas ep ON m.programa_id = ep.programa_id
+            WHERE g.student_id = $1
+              AND ep.estudiante_id = $1
+              AND m.activa = true
+            ORDER BY c.created_at ASC, g.materia ASC
         `;
 
         const result = await pool.query(query, [id]);
 
-        // La lógica de respuesta si no se encuentran notas sigue siendo válida.
         if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'No se encontraron notas de materias activas para este estudiante' });
+            return res.status(404).json({ error: 'No se encontraron notas para este estudiante' });
         }
 
         res.status(200).json(result.rows);
@@ -88,162 +94,176 @@ const getGradesByStudentIdController = async (req, res) => {
     }
 };
 
-
+// Portal estudiante: notas por documento, filtradas por materias del programa,
+// solo cierres cerrados, agrupadas por cierre
 const getGradesByStudentDocumentController = async (req, res) => {
-  const { numero_documento } = req.params;
+    const { numero_documento } = req.params;
 
-  if (!numero_documento || String(numero_documento).trim() === "") {
-    return res
-      .status(400)
-      .json({ error: "El número de documento es requerido." });
-  }
-
-  try {
-    const docTrim = String(numero_documento).trim();
-
-    // ✅ CONSULTA 1 AJUSTADA:
-    // - Ya NO usa inventario ni s.programa_id
-    // - Programa(s) salen de estudiante_programas + programas
-    const studentQuery = `
-      SELECT
-        s.id,
-        s.nombre,
-        s.apellido,
-        s.numero_documento,
-        COALESCE(
-          (
-            SELECT string_agg(p.nombre, ', ' ORDER BY p.nombre)
-            FROM estudiante_programas ep
-            JOIN programas p ON ep.programa_id = p.id
-            WHERE ep.estudiante_id = s.id
-          ),
-          'No asignado'
-        ) AS programa_nombre
-      FROM students s
-      WHERE TRIM(CAST(s.numero_documento AS TEXT)) = TRIM($1)
-      LIMIT 1;
-    `;
-
-    const studentResult = await pool.query(studentQuery, [docTrim]);
-
-    if (studentResult.rows.length === 0) {
-      return res.status(404).json({
-        error: "Estudiante no encontrado con el número de documento proporcionado.",
-      });
+    if (!numero_documento || String(numero_documento).trim() === '') {
+        return res.status(400).json({ error: 'El número de documento es requerido.' });
     }
 
-    const studentDataFromDB = studentResult.rows[0];
-    const studentIdForPDF = studentDataFromDB.id;
+    try {
+        const docTrim = String(numero_documento).trim();
 
-    // Mantienes el mismo shape que ya usabas
-    const studentInfoForPDF = {
-      nombre: studentDataFromDB.nombre,
-      apellido: studentDataFromDB.apellido,
-      programa_nombre: studentDataFromDB.programa_nombre || "No asignado",
-      documento: studentDataFromDB.numero_documento,
-    };
+        const studentQuery = `
+            SELECT
+                s.id,
+                s.nombre,
+                s.apellido,
+                s.numero_documento,
+                COALESCE(
+                    (
+                        SELECT string_agg(p.nombre, ', ' ORDER BY p.nombre)
+                        FROM estudiante_programas ep
+                        JOIN programas p ON ep.programa_id = p.id
+                        WHERE ep.estudiante_id = s.id
+                    ),
+                    'No asignado'
+                ) AS programa_nombre
+            FROM students s
+            WHERE TRIM(CAST(s.numero_documento AS TEXT)) = TRIM($1)
+            LIMIT 1;
+        `;
 
-    // ✅ CONSULTA 2: tu lógica de grades se mantiene igual
-    const gradesQuery = `
-      SELECT  
-        g.materia,  
-        g.nota 
-      FROM  
-        grades g 
-      JOIN  
-        materias m ON LOWER(TRIM(g.materia)) = LOWER(TRIM(m.nombre))
-      WHERE  
-        g.student_id = $1 AND m.activa = true 
-      ORDER BY  
-        g.materia ASC;
-    `;
-    const gradesResult = await pool.query(gradesQuery, [studentIdForPDF]);
-    const gradesForPDF = gradesResult.rows;
+        const studentResult = await pool.query(studentQuery, [docTrim]);
 
-    return res.status(200).json({
-      student: studentInfoForPDF,
-      grades: gradesForPDF,
-      studentId: studentIdForPDF,
-    });
-  } catch (err) {
-    console.error(
-      `Error obteniendo datos para el reporte del estudiante con documento ${numero_documento}:`,
-      err
-    );
-    return res.status(500).json({
-      error: "Error interno del servidor al obtener los datos del reporte.",
-    });
-  }
+        if (studentResult.rows.length === 0) {
+            return res.status(404).json({
+                error: 'Estudiante no encontrado con el número de documento proporcionado.',
+            });
+        }
+
+        const studentDataFromDB = studentResult.rows[0];
+        const studentId = studentDataFromDB.id;
+
+        const studentInfo = {
+            nombre: studentDataFromDB.nombre,
+            apellido: studentDataFromDB.apellido,
+            programa_nombre: studentDataFromDB.programa_nombre || 'No asignado',
+            documento: studentDataFromDB.numero_documento,
+        };
+
+        // Notas filtradas por materias del programa del estudiante,
+        // solo cierres cerrados, ordenadas de más antiguo a más reciente
+        const gradesQuery = `
+            SELECT
+                g.materia,
+                g.nota,
+                c.id            AS cierre_id,
+                COALESCE(c.nombre, 'En curso')  AS cierre_nombre,
+                c.fecha_cierre,
+                COALESCE(c.created_at, NOW())   AS cierre_created_at
+            FROM grades g
+            LEFT JOIN cierres c     ON g.cierre_id = c.id
+            JOIN materias m         ON LOWER(TRIM(g.materia)) = LOWER(TRIM(m.nombre))
+            JOIN estudiante_programas ep ON m.programa_id = ep.programa_id
+            WHERE g.student_id = $1
+              AND ep.estudiante_id = $1
+              AND m.activa = true
+            ORDER BY cierre_created_at ASC, g.materia ASC
+        `;
+
+        const gradesResult = await pool.query(gradesQuery, [studentId]);
+
+        // Agrupar por cierre
+        const cierresMap = new Map();
+        for (const row of gradesResult.rows) {
+            if (!cierresMap.has(row.cierre_id)) {
+                cierresMap.set(row.cierre_id, {
+                    cierre_id: row.cierre_id,
+                    nombre: row.cierre_nombre,
+                    fecha_cierre: row.fecha_cierre,
+                    grades: [],
+                });
+            }
+            cierresMap.get(row.cierre_id).grades.push({
+                materia: row.materia,
+                nota: row.nota,
+            });
+        }
+
+        const gradesByCierre = Array.from(cierresMap.values());
+        // Lista plana para el PDF (todas las notas)
+        const grades = gradesResult.rows.map((r) => ({ materia: r.materia, nota: r.nota }));
+
+        return res.status(200).json({
+            student: studentInfo,
+            grades,
+            gradesByCierre,
+            studentId,
+        });
+    } catch (err) {
+        console.error('Error obteniendo datos del estudiante:', err);
+        return res.status(500).json({ error: 'Error interno del servidor.' });
+    }
 };
 
-
-
-
-
-/**
- * Obtener estudiantes + calificaciones de un programa (role-aware)
- * GET /api/grades/programa/:programaId
- */
+// Notas de un programa (admin), filtrables por cierre_id
 const getGradesByProgramaController = async (req, res) => {
-  const { programaId } = req.params;
-  const businessId = req.user?.bid;
-  const userId     = req.user?.id;
-  const userRole   = req.user?.role;
+    const { programaId } = req.params;
+    const { cierre_id } = req.query;
+    const businessId = req.user?.bid;
+    const userId     = req.user?.id;
+    const userRole   = req.user?.role;
 
-  if (!businessId) return res.status(403).json({ error: 'No se pudo determinar el negocio.' });
+    if (!businessId) return res.status(403).json({ error: 'No se pudo determinar el negocio.' });
 
-  const isAdmin = userRole === 'admin' || userRole === 'superadmin';
+    const isAdmin = userRole === 'admin' || userRole === 'superadmin';
 
-  try {
-    // 1. Obtener info del programa
-    const { rows: programaRows } = await pool.query(
-      `SELECT * FROM programas WHERE id = $1 AND business_id = $2`,
-      [programaId, businessId]
-    );
-    if (programaRows.length === 0) {
-      return res.status(404).json({ error: 'Programa no encontrado.' });
+    try {
+        const { rows: programaRows } = await pool.query(
+            `SELECT * FROM programas WHERE id = $1 AND business_id = $2`,
+            [programaId, businessId]
+        );
+        if (programaRows.length === 0) {
+            return res.status(404).json({ error: 'Programa no encontrado.' });
+        }
+        const programa = programaRows[0];
+
+        const studentsParams = [programaId, businessId];
+        let coordinadorFilter = '';
+        if (!isAdmin) {
+            coordinadorFilter = `AND s.coordinador_id = $3`;
+            studentsParams.push(userId);
+        }
+
+        const { rows: students } = await pool.query(`
+            SELECT DISTINCT s.id, s.nombre, s.apellido, s.numero_documento
+            FROM students s
+            JOIN estudiante_programas ep ON ep.estudiante_id = s.id
+            WHERE ep.programa_id = $1 AND s.business_id = $2 ${coordinadorFilter}
+            ORDER BY s.apellido, s.nombre
+        `, studentsParams);
+
+        const studentIds = students.map((s) => s.id);
+        let grades = [];
+        if (studentIds.length > 0) {
+            const gradesParams = [studentIds, programa.nombre];
+            let cierreFilter = '';
+            if (cierre_id) {
+                // Incluir notas del cierre específico Y notas sin cierre asignado (guardadas antes de crear el cierre)
+                // Si existe una nota con el cierre específico, tiene prioridad sobre la de cierre_id NULL
+                cierreFilter = `AND (g.cierre_id = $3 OR g.cierre_id IS NULL)`;
+                gradesParams.push(parseInt(cierre_id));
+            }
+            const { rows } = await pool.query(
+                `SELECT DISTINCT ON (g.student_id, g.materia)
+                    g.student_id, g.materia, g.nota, g.cierre_id
+                 FROM grades g
+                 WHERE g.student_id = ANY($1::int[]) AND g.programa = $2 ${cierreFilter}
+                 ORDER BY g.student_id, g.materia,
+                    CASE WHEN g.cierre_id IS NOT NULL THEN 0 ELSE 1 END`,
+                gradesParams
+            );
+            grades = rows;
+        }
+
+        return res.json({ programa, students, grades });
+    } catch (err) {
+        console.error('Error en getGradesByProgramaController:', err);
+        return res.status(500).json({ error: 'Error obteniendo calificaciones del programa.' });
     }
-    const programa = programaRows[0];
-
-    // 2. Obtener estudiantes en este programa (con filtro de rol)
-    const studentsParams = [programaId, businessId];
-    let coordinadorFilter = '';
-    if (!isAdmin) {
-      coordinadorFilter = `AND s.coordinador_id = $3`;
-      studentsParams.push(userId);
-    }
-
-    const studentsQuery = `
-      SELECT DISTINCT
-        s.id, s.nombre, s.apellido, s.numero_documento
-      FROM students s
-      JOIN estudiante_programas ep ON ep.estudiante_id = s.id
-      WHERE ep.programa_id = $1
-        AND s.business_id = $2
-        ${coordinadorFilter}
-      ORDER BY s.apellido, s.nombre
-    `;
-    const { rows: students } = await pool.query(studentsQuery, studentsParams);
-
-    // 3. Obtener calificaciones existentes para estos estudiantes en este programa
-    const studentIds = students.map(s => s.id);
-    let grades = [];
-    if (studentIds.length > 0) {
-      const { rows } = await pool.query(
-        `SELECT student_id, materia, nota
-         FROM grades
-         WHERE student_id = ANY($1::int[])
-           AND programa = $2`,
-        [studentIds, programa.nombre]
-      );
-      grades = rows;
-    }
-
-    return res.json({ programa, students, grades });
-  } catch (err) {
-    console.error('Error en getGradesByProgramaController:', err);
-    return res.status(500).json({ error: 'Error obteniendo calificaciones del programa.' });
-  }
 };
 
 export {
