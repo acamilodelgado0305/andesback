@@ -9,7 +9,7 @@ export const createEvaluacion = async (req, res) => {
     titulo,
     descripcion,
     tipo_destino,
-    programa_id,
+    programa_ids,
     materia_id,
     fecha_inicio,
     fecha_fin,
@@ -23,7 +23,13 @@ export const createEvaluacion = async (req, res) => {
     return res.status(403).json({ ok: false, message: 'No se pudo determinar el negocio del usuario.' });
   }
 
+  const programaIdsArray = Array.isArray(programa_ids) ? programa_ids.filter(Boolean) : [];
+  const primaryProgramaId = programaIdsArray[0] ?? null;
+
+  const client = await pool.connect();
   try {
+    await client.query('BEGIN');
+
     const query = `
       INSERT INTO public.evaluaciones (
         titulo, descripcion, tipo_destino, programa_id, materia_id,
@@ -36,7 +42,7 @@ export const createEvaluacion = async (req, res) => {
       titulo,
       descripcion || null,
       tipo_destino || null,
-      programa_id || null,
+      primaryProgramaId,
       materia_id || null,
       fecha_inicio || null,
       fecha_fin || null,
@@ -46,15 +52,28 @@ export const createEvaluacion = async (req, res) => {
       businessId,
     ];
 
-    const { rows } = await pool.query(query, values);
+    const { rows } = await client.query(query, values);
+    const evaluacion = rows[0];
+
+    if (programaIdsArray.length > 0) {
+      const junctionValues = programaIdsArray.map((pid) => `(${evaluacion.id}, ${parseInt(pid)})`).join(', ');
+      await client.query(
+        `INSERT INTO public.evaluacion_programas (evaluacion_id, programa_id) VALUES ${junctionValues} ON CONFLICT DO NOTHING;`
+      );
+    }
+
+    await client.query('COMMIT');
     return res.status(201).json({
       ok: true,
       message: 'Evaluación creada correctamente',
-      evaluacion: rows[0],
+      evaluacion,
     });
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Error en createEvaluacion:', error);
     return res.status(500).json({ ok: false, message: 'Error al crear la evaluación', error: error.message });
+  } finally {
+    client.release();
   }
 };
 
@@ -75,7 +94,7 @@ export const getEvaluaciones = async (req, res) => {
     let idx = 2;
 
     if (programa_id) {
-      condiciones.push(`e.programa_id = $${idx++}`);
+      condiciones.push(`EXISTS (SELECT 1 FROM public.evaluacion_programas ep WHERE ep.evaluacion_id = e.id AND ep.programa_id = $${idx++})`);
       valores.push(programa_id);
     }
     if (materia_id) {
@@ -96,13 +115,21 @@ export const getEvaluaciones = async (req, res) => {
     const query = `
       SELECT
         e.*,
-        p.nombre AS programa_nombre,
-        p.tipo_programa AS programa_tipo,
         m.nombre AS materia_nombre,
         pm.tipo_programa AS materia_tipo,
-        COALESCE(qc.total_preguntas, 0) AS total_preguntas
+        COALESCE(qc.total_preguntas, 0) AS total_preguntas,
+        COALESCE(
+          (SELECT json_agg(json_build_object('id', p.id, 'nombre', p.nombre, 'tipo_programa', p.tipo_programa))
+           FROM public.evaluacion_programas ep
+           JOIN public.programas p ON p.id = ep.programa_id
+           WHERE ep.evaluacion_id = e.id),
+          '[]'::json
+        ) AS programas,
+        (SELECT string_agg(p.nombre, ', ')
+         FROM public.evaluacion_programas ep
+         JOIN public.programas p ON p.id = ep.programa_id
+         WHERE ep.evaluacion_id = e.id) AS programa_nombre
       FROM public.evaluaciones e
-      LEFT JOIN public.programas p  ON e.programa_id = p.id
       LEFT JOIN public.materias m   ON e.materia_id = m.id
       LEFT JOIN public.programas pm ON m.programa_id = pm.id
       LEFT JOIN (
@@ -134,7 +161,22 @@ export const getEvaluacionById = async (req, res) => {
   }
 
   try {
-    const evaluacionQuery = 'SELECT * FROM public.evaluaciones WHERE id = $1 AND business_id = $2;';
+    const evaluacionQuery = `
+      SELECT e.*,
+        COALESCE(
+          (SELECT json_agg(json_build_object('id', p.id, 'nombre', p.nombre, 'tipo_programa', p.tipo_programa))
+           FROM public.evaluacion_programas ep
+           JOIN public.programas p ON p.id = ep.programa_id
+           WHERE ep.evaluacion_id = e.id),
+          '[]'::json
+        ) AS programas,
+        COALESCE(
+          (SELECT array_agg(ep.programa_id) FROM public.evaluacion_programas ep WHERE ep.evaluacion_id = e.id),
+          '{}'::int[]
+        ) AS programa_ids
+      FROM public.evaluaciones e
+      WHERE e.id = $1 AND e.business_id = $2;
+    `;
     const evaluacionResult = await pool.query(evaluacionQuery, [id, businessId]);
 
     if (evaluacionResult.rows.length === 0) {
@@ -194,7 +236,7 @@ export const updateEvaluacion = async (req, res) => {
     titulo,
     descripcion,
     tipo_destino,
-    programa_id,
+    programa_ids,
     materia_id,
     fecha_inicio,
     fecha_fin,
@@ -208,14 +250,20 @@ export const updateEvaluacion = async (req, res) => {
     return res.status(403).json({ ok: false, message: 'No se pudo determinar el negocio del usuario.' });
   }
 
+  const programaIdsArray = Array.isArray(programa_ids) ? programa_ids.filter(Boolean) : [];
+  const primaryProgramaId = programaIdsArray[0] ?? null;
+
+  const client = await pool.connect();
   try {
+    await client.query('BEGIN');
+
     const query = `
       UPDATE public.evaluaciones
       SET
         titulo = COALESCE($1, titulo),
         descripcion = COALESCE($2, descripcion),
         tipo_destino = COALESCE($3, tipo_destino),
-        programa_id = COALESCE($4, programa_id),
+        programa_id = $4,
         materia_id = COALESCE($5, materia_id),
         fecha_inicio = COALESCE($6, fecha_inicio),
         fecha_fin = COALESCE($7, fecha_fin),
@@ -229,7 +277,7 @@ export const updateEvaluacion = async (req, res) => {
       titulo || null,
       descripcion || null,
       tipo_destino || null,
-      programa_id || null,
+      primaryProgramaId,
       materia_id || null,
       fecha_inicio || null,
       fecha_fin || null,
@@ -240,16 +288,30 @@ export const updateEvaluacion = async (req, res) => {
       businessId,
     ];
 
-    const { rows } = await pool.query(query, values);
+    const { rows } = await client.query(query, values);
 
     if (rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ ok: false, message: 'Evaluación no encontrada' });
     }
 
+    await client.query('DELETE FROM public.evaluacion_programas WHERE evaluacion_id = $1', [id]);
+
+    if (programaIdsArray.length > 0) {
+      const junctionValues = programaIdsArray.map((pid) => `(${parseInt(id)}, ${parseInt(pid)})`).join(', ');
+      await client.query(
+        `INSERT INTO public.evaluacion_programas (evaluacion_id, programa_id) VALUES ${junctionValues} ON CONFLICT DO NOTHING;`
+      );
+    }
+
+    await client.query('COMMIT');
     return res.json({ ok: true, message: 'Evaluación actualizada correctamente', evaluacion: rows[0] });
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Error en updateEvaluacion:', error);
     return res.status(500).json({ ok: false, message: 'Error al actualizar la evaluación', error: error.message });
+  } finally {
+    client.release();
   }
 };
 
@@ -682,12 +744,13 @@ export const getEvaluacionesDeEstudiante = async (req, res) => {
         AND (e.fecha_inicio IS NULL OR e.fecha_inicio <= NOW())
         AND (e.fecha_fin IS NULL OR e.fecha_fin >= NOW())
         AND (
-          e.programa_id IS NULL
+          NOT EXISTS (SELECT 1 FROM public.evaluacion_programas epr WHERE epr.evaluacion_id = e.id)
           OR EXISTS (
             SELECT 1
-            FROM public.estudiante_programas ep
-            WHERE ep.estudiante_id = ea.estudiante_id
-              AND ep.programa_id = e.programa_id
+            FROM public.evaluacion_programas epr
+            JOIN public.estudiante_programas ep ON ep.programa_id = epr.programa_id
+            WHERE epr.evaluacion_id = e.id
+              AND ep.estudiante_id = ea.estudiante_id
           )
         )
       ORDER BY ea.estado, ea.id DESC;

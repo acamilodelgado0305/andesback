@@ -58,7 +58,31 @@ const testConnection = async () => {
   }
 };
 
-// Ejecuta la prueba al iniciar la aplicación
+const runMigrations = async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS public.evaluacion_programas (
+        evaluacion_id int4 NOT NULL,
+        programa_id   int4 NOT NULL,
+        PRIMARY KEY (evaluacion_id, programa_id),
+        CONSTRAINT evaluacion_programas_evaluacion_fkey
+          FOREIGN KEY (evaluacion_id) REFERENCES public.evaluaciones(id) ON DELETE CASCADE,
+        CONSTRAINT evaluacion_programas_programa_fkey
+          FOREIGN KEY (programa_id) REFERENCES public.programas(id) ON DELETE CASCADE
+      );
+    `);
+    await pool.query(`
+      INSERT INTO public.evaluacion_programas (evaluacion_id, programa_id)
+      SELECT id, programa_id FROM public.evaluaciones WHERE programa_id IS NOT NULL
+      ON CONFLICT DO NOTHING;
+    `);
+    console.log("Migraciones ejecutadas correctamente.");
+  } catch (err) {
+    console.error("Error ejecutando migraciones:", err);
+  }
+};
+
 testConnection();
+runMigrations();
 
 export default pool;
