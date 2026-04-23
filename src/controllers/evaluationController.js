@@ -578,15 +578,15 @@ export const asignarPorEstudianteProgramas = async (req, res) => {
         evaluacion_id, estudiante_id, estado, intentos_realizados
       )
       SELECT DISTINCT
-        $1 AS evaluacion_id,
+        $1::int AS evaluacion_id,
         ep.estudiante_id,
         'pendiente' AS estado,
         0 AS intentos_realizados
       FROM public.estudiante_programas ep
-      WHERE ep.programa_id = $2
+      WHERE ep.programa_id = $2::int
         AND NOT EXISTS (
           SELECT 1 FROM public.evaluacion_asignaciones ea
-          WHERE ea.evaluacion_id = $1 AND ea.estudiante_id = ep.estudiante_id
+          WHERE ea.evaluacion_id = $1::int AND ea.estudiante_id = ep.estudiante_id
         );
     `;
     await client.query(insertQuery, [parseInt(evaluacion_id), parseInt(programa_id)]);
