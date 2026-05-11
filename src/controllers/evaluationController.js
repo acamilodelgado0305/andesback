@@ -1015,6 +1015,28 @@ export const responderEvaluacion = async (req, res) => {
       );
     }
 
+    // Si la evaluación está vinculada a un módulo y el estudiante aprueba (≥3.0) → completar módulo
+    const NOTA_APROBACION = 3.0;
+    if (notaEscala5 >= NOTA_APROBACION) {
+      try {
+        const modLinkResult = await client.query(
+          `SELECT modulo_id FROM modulo_evaluaciones WHERE evaluacion_id = $1 LIMIT 1`,
+          [asignacion.evaluacion_id]
+        );
+        if (modLinkResult.rows.length > 0) {
+          const moduloId = modLinkResult.rows[0].modulo_id;
+          await client.query(
+            `UPDATE estudiante_modulos
+             SET estado = 'completado'
+             WHERE modulo_id = $1 AND estudiante_id = $2 AND estado != 'completado'`,
+            [moduloId, asignacion.estudiante_id]
+          );
+        }
+      } catch (modErr) {
+        console.warn('No se pudo actualizar estado de módulo:', modErr.message);
+      }
+    }
+
     await client.query('COMMIT');
 
     return res.json({ ok: true, message: 'Evaluación enviada y calificada correctamente', calificacion: notaEscala5 });

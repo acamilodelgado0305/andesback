@@ -4,6 +4,7 @@ import {
   createPrograma,
   getProgramas,
   getProgramaById,
+  getProgramaDetalle,
   updatePrograma,
   deletePrograma,
 } from "../controllers/programasController.js";
@@ -12,8 +13,9 @@ import { authMiddleware, optionalAuthMiddleware } from "../middlewares/authMiddl
 const router = express.Router();
 
 // GET: optionalAuth — si hay token filtra por business, si no devuelve todos (formularios públicos)
-router.get("/programas",     optionalAuthMiddleware, getProgramas);
-router.get("/programas/:id", optionalAuthMiddleware, getProgramaById);
+router.get("/programas",              optionalAuthMiddleware, getProgramas);
+router.get("/programas/:id/detalle",  authMiddleware, getProgramaDetalle);   // detalle completo admin
+router.get("/programas/:id",          optionalAuthMiddleware, getProgramaById);
 
 // Escritura: siempre requiere autenticación y business_id del token
 router.post("/programas",        authMiddleware, createPrograma);

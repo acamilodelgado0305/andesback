@@ -178,6 +178,62 @@ export const updatePrograma = async (req, res) => {
   }
 };
 
+// --- GET DETALLE (programa + estudiantes + módulos + stats) ---
+export const getProgramaDetalle = async (req, res) => {
+  const businessId = req.user?.bid;
+  const { id } = req.params;
+
+  try {
+    // Programa
+    const { rows: progRows } = await pool.query(
+      'SELECT * FROM programas WHERE id=$1 AND business_id=$2',
+      [id, businessId]
+    );
+    if (!progRows.length) return res.status(404).json({ message: 'Programa no encontrado.' });
+
+    // Estudiantes inscritos
+    const { rows: estudiantes } = await pool.query(
+      `SELECT s.id, s.nombre, s.apellido, s.email,
+              s.telefono_whatsapp, s.telefono_llamadas,
+              s.numero_documento, s.estado_matricula
+       FROM estudiante_programas ep
+       JOIN students s ON s.id = ep.estudiante_id
+       WHERE ep.programa_id = $1
+       ORDER BY s.nombre ASC`,
+      [id]
+    );
+
+    // Módulos del programa (directos o a través de materia)
+    const { rows: modulos } = await pool.query(
+      `SELECT m.id, m.titulo, m.descripcion, m.activa, m.orden, m.created_at,
+              m.materia_id,
+              mat.nombre AS materia_nombre,
+              (SELECT COUNT(*) FROM modulo_pdfs mp WHERE mp.modulo_id = m.id) AS total_pdfs,
+              (SELECT COUNT(*) FROM modulo_evaluaciones me WHERE me.modulo_id = m.id) AS total_evaluaciones,
+              (SELECT COUNT(*) FROM estudiante_modulos em WHERE em.modulo_id = m.id) AS total_asignados
+       FROM modulos m
+       LEFT JOIN materias mat ON mat.id = m.materia_id
+       WHERE (m.programa_id = $1 OR mat.programa_id = $1) AND m.business_id = $2
+       ORDER BY mat.nombre ASC NULLS LAST, m.orden ASC, m.created_at DESC`,
+      [id, businessId]
+    );
+
+    return res.status(200).json({
+      programa: progRows[0],
+      estudiantes,
+      modulos,
+      stats: {
+        total_estudiantes: estudiantes.length,
+        total_modulos: modulos.length,
+        activos: progRows[0].activo,
+      },
+    });
+  } catch (err) {
+    console.error('Error en getProgramaDetalle:', err);
+    return res.status(500).json({ message: 'Error al obtener detalle del programa.' });
+  }
+};
+
 // --- DELETE (soft) ---
 export const deletePrograma = async (req, res) => {
   const businessId = req.user?.bid;
