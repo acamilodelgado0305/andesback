@@ -12,8 +12,7 @@ import {
     getPaymentTypesController           // Llenar select de tipos de pago
 } from '../controllers/paymentController.js';
 
-// Si tienes middleware de autenticación, impórtalo aquí:
-// import { verifyToken, isAdmin } from '../middlewares/authMiddleware.js';
+import { authMiddleware } from '../middlewares/authMiddleware.js';
 
 const router = express.Router();
 
@@ -33,7 +32,7 @@ router.get('/payment-types', getPaymentTypesController);
 // ==========================================
 
 // Crear un nuevo pago (Abono a programa, Matrícula, etc.)
-router.post('/payments', createPagoController);
+router.post('/payments', authMiddleware, createPagoController);
 
 // Obtener todos los pagos del sistema (Ideal para reporte general de Admin)
 router.get('/payments', getPagosController);

@@ -175,7 +175,45 @@ export const createPagoController = async (req, res) => {
             await pool.query('UPDATE students SET estado_matricula = TRUE, updated_at = NOW() WHERE id = $1', [student_id]);
         }
 
-        // E. Enviar Correo (Opcional, mantener tu lógica)
+        // E. Registrar en BACKEND (microservicio POS) para que aparezca en Movimientos
+        if (req.user?.id && req.user?.bid) {
+            try {
+                const studentInfoRes = await pool.query(
+                    'SELECT nombre, apellido FROM students WHERE id = $1',
+                    [student_id]
+                );
+                const sNombre   = studentInfoRes.rows[0]?.nombre   || 'Estudiante';
+                const sApellido = studentInfoRes.rows[0]?.apellido || '';
+
+                const backendUrl  = process.env.BACKEND_URL || 'http://localhost:8080';
+                const authHeader  = req.headers['authorization'] || req.headers['Authorization'] || '';
+
+                const ingresoRes = await fetch(`${backendUrl}/api/ingresos`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': authHeader,
+                    },
+                    body: JSON.stringify({
+                        nombre:       sNombre,
+                        apellido:     sApellido,
+                        descripcion:  `${tipo_pago_nombre} - ${sNombre} ${sApellido}`,
+                        valor:        monto,
+                        cuenta:       metodo_pago || 'Efectivo',
+                        customer_email: '',
+                    }),
+                });
+
+                if (!ingresoRes.ok) {
+                    const txt = await ingresoRes.text();
+                    console.error('[MOVIMIENTOS ERROR] BACKEND respondió:', ingresoRes.status, txt);
+                }
+            } catch (ingresoErr) {
+                console.error('[MOVIMIENTOS ERROR]', ingresoErr.message);
+            }
+        }
+
+        // F. Enviar Correo (Opcional, mantener tu lógica)
         // ... (Tu bloque de nodemailer aquí si deseas mantenerlo) ...
 
         res.status(201).json(payment);
