@@ -1,10 +1,58 @@
 // src/controllers/certificadoController.js
 
-// Importación correcta de node-fetch para módulos ES (ya no lo necesitaremos para certificado, pero lo mantenemos por si el carnet aún lo usa)
 import fetch from 'node-fetch';
-// Importación de pdfkit para la generación de PDFs
 import PDFDocument from 'pdfkit';
 import QRCode from 'qrcode';
+
+// Dibuja un patrón de ondas semitransparente sobre la página actual del documento.
+// Actúa como marca de seguridad anti-copia: las ondas se reproducen distorsionadas
+// en fotocopias o escaneos de baja calidad, haciendo evidente la copia.
+const dibujarPatronOndas = (doc, opciones = {}) => {
+    const {
+        color = '#1a3a8a',
+        opacidad = 0.055,
+        amplitud = 4.5,
+        frecuencia = 22,
+        espaciado = 9,
+        grosor = 0.4,
+    } = opciones;
+
+    const w = doc.page.width;
+    const h = doc.page.height;
+
+    doc.save();
+    doc.lineWidth(grosor);
+
+    // Capa 1: ondas horizontales (izquierda → derecha)
+    for (let y = espaciado / 2; y <= h + amplitud; y += espaciado) {
+        doc.moveTo(0, y);
+        for (let x = 0; x < w; x += frecuencia) {
+            doc.bezierCurveTo(
+                x + frecuencia * 0.25, y - amplitud,
+                x + frecuencia * 0.75, y + amplitud,
+                x + frecuencia, y
+            );
+        }
+        doc.strokeColor(color, opacidad).stroke();
+    }
+
+    // Capa 2: ondas con fase invertida y frecuencia distinta (crea efecto moiré con la capa 1)
+    const f2 = frecuencia * 1.4;
+    const offset = espaciado * 0.6;
+    for (let y = offset; y <= h + amplitud; y += espaciado * 1.6) {
+        doc.moveTo(0, y);
+        for (let x = 0; x < w; x += f2) {
+            doc.bezierCurveTo(
+                x + f2 * 0.25, y + amplitud,
+                x + f2 * 0.75, y - amplitud,
+                x + f2, y
+            );
+        }
+        doc.strokeColor(color, opacidad * 0.75).stroke();
+    }
+
+    doc.restore();
+};
 
 
 // Necesitamos 'fs' y 'path' para leer las imágenes de fondo
@@ -96,12 +144,13 @@ const generarCertificadoController = async (req, res) => {
             scale: 4 // Escala de la imagen
         });
 
-        // Incrustamos la imagen del QR en el PDF
-        // Tendrás que ajustar las coordenadas (X, Y) y el tamaño para que encaje en tu diseño
-        doc.image(qrCodeImage, 475, 720, { // Posición (X, Y) desde la esquina superior izquierda
-            width: 80 // Ancho del QR en el PDF
+        doc.image(qrCodeImage, 475, 720, {
+            width: 80
         });
         // ==================================================================
+
+        // Patrón de seguridad anti-copia (encima de todo el contenido)
+        dibujarPatronOndas(doc);
 
         doc.end();
 
@@ -169,6 +218,9 @@ const generarCarnetController = async (req, res) => {
         const fechaActual = new Date().toLocaleDateString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '/');
         doc.fontSize(6).text(fechaActual, 202, 134, { width: 100, align: 'left' });
 
+        // Patrón de seguridad en página frontal (encima de todo el contenido)
+        dibujarPatronOndas(doc, { amplitud: 2, frecuencia: 10, espaciado: 4.5, grosor: 0.3 });
+
         // --- Página Posterior del Carnet ---
         doc.addPage({ size: [85.6 * 2.83, 54 * 2.83], margin: 0 });
         doc.image(posteriorImageBuffer, 0, 0, { width: doc.page.width, height: doc.page.height });
@@ -186,11 +238,13 @@ const generarCarnetController = async (req, res) => {
             scale: 3 // Un tamaño más pequeño, adecuado para el carnet
         });
 
-        // Incrustamos el QR en la parte posterior. Ajusta X, Y y el ancho según tu diseño.
-        doc.image(qrCodeImage, 180, 25, { // Posición (X, Y)
-            width: 40 // Ancho del QR
+        doc.image(qrCodeImage, 180, 25, {
+            width: 40
         });
         // ==================================================================
+
+        // Patrón de seguridad en página posterior
+        dibujarPatronOndas(doc, { amplitud: 2, frecuencia: 10, espaciado: 4.5, grosor: 0.3 });
 
         doc.end();
         console.log(`Carnet PDF generado y enviado para: ${nombre}`);
