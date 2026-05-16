@@ -135,7 +135,7 @@ const generarCertificadoController = async (req, res) => {
         // ==================================================================
         // <-- 2. GENERACIÓN E INCRUSTACIÓN DEL CÓDIGO QR -->
         // ==================================================================
-        const urlVerificacion = 'https://quickcontrola.com/verificacion';
+        const urlVerificacion = 'https://rapictrl.com/verificacion';
 
         // Generamos el QR como una imagen en formato Data URL (Base64)
         const qrCodeImage = await QRCode.toDataURL(urlVerificacion, {
