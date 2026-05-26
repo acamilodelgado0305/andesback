@@ -190,11 +190,13 @@ export const getStudentsController = async (req, res) => {
     // Siempre filtramos por business_id del token.
     // Admin/superadmin: todos los estudiantes de ese business.
     // Otros roles: solo sus estudiantes (por coordinador_id) dentro del business.
-    const conditions  = ['s.business_id = $1'];
+    const showArchived = req.query.archived === 'true';
+
+    const conditions  = ['s.business_id = $1', showArchived ? 's.archived = TRUE' : '(s.archived = FALSE OR s.archived IS NULL)'];
     const queryParams = [businessId];
 
     if (!isAdmin) {
-      conditions.push('s.coordinador_id = $2');
+      conditions.push(`s.coordinador_id = $${queryParams.length + 1}`);
       queryParams.push(userId);
     }
 
@@ -218,7 +220,20 @@ export const getStudentsController = async (req, res) => {
             WHERE ep.estudiante_id = s.id
           ),
           '[]'::json
-        ) AS programas_asociados
+        ) AS programas_asociados,
+        COALESCE(
+          (SELECT SUM(p.monto_total)
+           FROM estudiante_programas ep
+           JOIN programas p ON ep.programa_id = p.id
+           WHERE ep.estudiante_id = s.id),
+          0
+        ) AS monto_total_programas,
+        COALESCE(
+          (SELECT SUM(pg.monto)
+           FROM pagos pg
+           WHERE pg.student_id = s.id AND pg.estado = 'Pagado'),
+          0
+        ) AS total_abonado
       FROM students s
       ${whereClause}
       ORDER BY s.created_at DESC;
@@ -665,43 +680,57 @@ export const updateStudentController = async (req, res) => {
 
 
 // =======================================================
-// LÓGICA DE ELIMINACIÓN (DELETE)
+// LÓGICA DE ARCHIVADO (PATCH) — reemplaza el DELETE
 // =======================================================
-const deleteStudentController = async (req, res) => {
+const archiveStudentController = async (req, res) => {
+  const { id } = req.params;
+  const { reason } = req.body;
+
+  if (!id || isNaN(id)) {
+    return res.status(400).json({ error: 'ID de estudiante inválido.' });
+  }
+  if (!reason || !reason.trim()) {
+    return res.status(400).json({ error: 'Debes indicar la razón del archivado.' });
+  }
+
+  try {
+    const result = await pool.query(
+      'UPDATE students SET archived = TRUE, archived_reason = $2, updated_at = NOW() WHERE id = $1 RETURNING id, nombre, apellido, archived_reason',
+      [id, reason.trim()]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Estudiante no encontrado.' });
+    }
+    res.status(200).json({ message: 'Estudiante archivado correctamente.', student: result.rows[0] });
+  } catch (err) {
+    handleServerError(res, err, 'Error archivando estudiante.');
+  }
+};
+
+// =======================================================
+// LÓGICA DE RESTAURACIÓN (PATCH)
+// =======================================================
+const restoreStudentController = async (req, res) => {
   const { id } = req.params;
   if (!id || isNaN(id)) {
     return res.status(400).json({ error: 'ID de estudiante inválido.' });
   }
 
-  let client;
   try {
-    client = await pool.connect();
-    await client.query('BEGIN'); // Iniciar transacción
-
-    // 1. Eliminar los pagos asociados al estudiante (¡NUEVO!)
-    await client.query('DELETE FROM pagos WHERE student_id = $1', [id]);
-
-    // 2. Eliminar las relaciones en 'estudiante_programas'
-    await client.query('DELETE FROM estudiante_programas WHERE estudiante_id = $1', [id]);
-
-    // 3. Ahora sí, eliminar el estudiante
-    const result = await client.query('DELETE FROM students WHERE id = $1 RETURNING *', [id]);
-
+    const result = await pool.query(
+      'UPDATE students SET archived = FALSE, updated_at = NOW() WHERE id = $1 RETURNING id, nombre, apellido',
+      [id]
+    );
     if (result.rows.length === 0) {
-      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Estudiante no encontrado.' });
     }
-
-    await client.query('COMMIT'); // Confirmar todos los cambios
-    res.status(200).json({ message: 'Estudiante y todos sus registros asociados han sido eliminados.', student: result.rows[0] });
-
+    res.status(200).json({ message: 'Estudiante restaurado correctamente.', student: result.rows[0] });
   } catch (err) {
-    if (client) await client.query('ROLLBACK');
-    handleServerError(res, err, 'Error eliminando estudiante.');
-  } finally {
-    if (client) client.release();
+    handleServerError(res, err, 'Error restaurando estudiante.');
   }
 };
+
+const deleteStudentController = archiveStudentController;
 
 // =======================================================
 // LÓGICA DE ACTUALIZACIÓN DE ESTADO (PATCH)
@@ -1161,6 +1190,8 @@ export const bulkMoveToPrograma = async (req, res) => {
 
 export {
   deleteStudentController,
+  archiveStudentController,
+  restoreStudentController,
   updateEstadoStudentController,
   getStudentsByProgramaIdController,
   getStudentsByProgramTypeController,

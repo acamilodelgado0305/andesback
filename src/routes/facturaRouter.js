@@ -1,15 +1,16 @@
 import express from 'express';
 import {
-    createPagoController,               // Crear abono
-    getPagosController,                 // Ver todos (Admin)
-    getPagosByIdController,             // Ver uno detalle
-    getPagosByStudentIdController,      // Historial del estudiante
-    updatePagoController,               // Corregir pago
-    deletePagoController,               // Eliminar pago
-    updateEstadoPagoController,         // Aprobar/Anular
-    getTotalPagosByStudentIdController, // Total acumulado
-    getStudentProgramInfoController,    // <--- CLAVE: Trae la deuda y el estado de cuenta
-    getPaymentTypesController           // Llenar select de tipos de pago
+    createPagoController,                     // Crear abono
+    getPagosController,                       // Ver todos (Admin)
+    getPagosByIdController,                   // Ver uno detalle
+    getPagosByStudentIdController,            // Historial del estudiante
+    updatePagoController,                     // Corregir pago
+    deletePagoController,                     // Eliminar pago
+    updateEstadoPagoController,               // Aprobar/Anular
+    getTotalPagosByStudentIdController,       // Total acumulado
+    getStudentProgramInfoController,          // Deuda y estado de cuenta
+    getPaymentTypesController,                // Llenar select de tipos de pago
+    getStudentsWithoutPaymentController,      // Estudiantes sin pago en período
 } from '../controllers/paymentController.js';
 
 import { authMiddleware } from '../middlewares/authMiddleware.js';
@@ -34,8 +35,11 @@ router.get('/payment-types', getPaymentTypesController);
 // Crear un nuevo pago (Abono a programa, Matrícula, etc.)
 router.post('/payments', authMiddleware, createPagoController);
 
-// Obtener todos los pagos del sistema (Ideal para reporte general de Admin)
-router.get('/payments', getPagosController);
+// Obtener todos los pagos del sistema (Admin ve todos, otros solo los suyos)
+router.get('/payments', authMiddleware, getPagosController);
+
+// Estudiantes que NO tienen pago en el período (recuperación de cartera)
+router.get('/payments/students-without-payment', authMiddleware, getStudentsWithoutPaymentController);
 
 // Obtener un pago específico por su ID
 router.get('/payments/:id', getPagosByIdController);

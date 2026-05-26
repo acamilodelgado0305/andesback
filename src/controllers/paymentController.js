@@ -9,6 +9,7 @@ import {
     updateEstadoPago,
     getPagosTotalByStudentId
 } from '../models/paymentModel.js';
+import { getUsersMapFromAuthService } from '../services/authServiceClient.js';
 
 import nodemailer from 'nodemailer';
 import fs from 'fs';
@@ -265,19 +266,77 @@ export const getPagosByStudentIdController = async (req, res) => {
 };
 
 // =====================================================================
-// 5. OBTENER TODOS LOS PAGOS (Admin General)
+// 5. OBTENER TODOS LOS PAGOS — Admin ve todos, otros solo los suyos
 // =====================================================================
 export const getPagosController = async (req, res) => {
     try {
+        const userId     = req.user?.id;
+        const userRole   = req.user?.role;
+        const businessId = req.user?.bid;
+
+        if (!userId)     return res.status(401).json({ error: 'Usuario no autenticado.' });
+        if (!businessId) return res.status(400).json({ error: 'Token sin business asociado.' });
+
+        const isAdmin = userRole === 'admin' || userRole === 'superadmin';
+
+        const { fecha_inicio, fecha_fin } = req.query;
+
+        const conditions = ['s.business_id = $1'];
+        const params     = [businessId];
+
+        if (fecha_inicio) {
+            params.push(fecha_inicio);
+            conditions.push(`pg.fecha_pago >= $${params.length}`);
+        }
+        if (fecha_fin) {
+            params.push(fecha_fin);
+            conditions.push(`pg.fecha_pago <= $${params.length}`);
+        }
+
+        if (!isAdmin) {
+            params.push(userId);
+            conditions.push(`s.coordinador_id = $${params.length}`);
+        }
+
+        const whereClause = `WHERE ${conditions.join(' AND ')}`;
+
         const query = `
-            SELECT pg.*, tp.nombre as tipo_pago_nombre, s.nombre as estudiante_nombre, s.apellido as estudiante_apellido
+            SELECT
+                pg.*,
+                tp.nombre       AS tipo_pago_nombre,
+                s.nombre        AS estudiante_nombre,
+                s.apellido      AS estudiante_apellido,
+                s.coordinador_id,
+                p.nombre        AS programa_nombre,
+                p.monto_total   AS programa_monto_total,
+                COALESCE(prog_totales.total_abonado, 0) AS total_abonado
             FROM pagos pg
             JOIN tipos_pago tp ON pg.tipo_pago_id = tp.id
-            JOIN students s ON pg.student_id = s.id
-            ORDER BY pg.fecha_pago DESC
+            JOIN students   s  ON pg.student_id   = s.id
+            LEFT JOIN programas p ON pg.program_id = p.id
+            LEFT JOIN (
+                SELECT student_id, program_id, SUM(monto) AS total_abonado
+                FROM pagos
+                WHERE estado = 'Pagado'
+                GROUP BY student_id, program_id
+            ) prog_totales ON pg.student_id = prog_totales.student_id
+                          AND pg.program_id  = prog_totales.program_id
+            ${whereClause}
+            ORDER BY pg.fecha_pago DESC, pg.created_at DESC
         `;
-        const { rows } = await pool.query(query);
-        res.status(200).json(rows);
+
+        const { rows } = await pool.query(query, params);
+
+        const authHeader = req.headers['authorization'] || '';
+        const token      = authHeader.replace(/^Bearer\s+/i, '');
+        const usersMap   = await getUsersMapFromAuthService(token);
+
+        const enriched = rows.map((row) => ({
+            ...row,
+            coordinador_nombre: usersMap.get(Number(row.coordinador_id)) || null,
+        }));
+
+        res.status(200).json(enriched);
     } catch (err) {
         console.error('Error obteniendo pagos:', err);
         res.status(500).json({ error: 'Error obteniendo pagos' });
@@ -285,7 +344,88 @@ export const getPagosController = async (req, res) => {
 };
 
 // =====================================================================
-// 6. ACTUALIZAR PAGO
+// 6. ESTUDIANTES SIN PAGO EN EL PERÍODO — Admin ve todos, otros solo los suyos
+// =====================================================================
+export const getStudentsWithoutPaymentController = async (req, res) => {
+    try {
+        const userId     = req.user?.id;
+        const userRole   = req.user?.role;
+        const businessId = req.user?.bid;
+
+        if (!userId)     return res.status(401).json({ error: 'Usuario no autenticado.' });
+        if (!businessId) return res.status(400).json({ error: 'Token sin business asociado.' });
+
+        const isAdmin = userRole === 'admin' || userRole === 'superadmin';
+
+        const { fecha_inicio, fecha_fin } = req.query;
+
+        const now = new Date();
+        const fi  = fecha_inicio || new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+        const ff  = fecha_fin    || new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+
+        // Params: $1 = businessId, $2 = fi, $3 = ff, [$4 = userId si no admin]
+        const params = [businessId, fi, ff];
+        const extraCondition = isAdmin ? '' : `AND s.coordinador_id = $${params.push(userId)}`;
+
+        const query = `
+            SELECT
+                s.id,
+                s.nombre,
+                s.apellido,
+                s.coordinador_id,
+                COALESCE(
+                    json_agg(
+                        json_build_object(
+                            'nombre',        p.nombre,
+                            'monto_total',   COALESCE(p.monto_total, 0),
+                            'total_abonado', COALESCE(prog_totales.total_abonado, 0)
+                        )
+                    ) FILTER (WHERE p.nombre IS NOT NULL),
+                    '[]'::json
+                ) AS programas,
+                MAX(pg_all.fecha_pago) AS ultimo_pago
+            FROM students s
+            LEFT JOIN estudiante_programas ep  ON s.id = ep.estudiante_id
+            LEFT JOIN programas p              ON ep.programa_id = p.id
+            LEFT JOIN pagos pg_all             ON s.id = pg_all.student_id
+            LEFT JOIN (
+                SELECT student_id, program_id, SUM(monto) AS total_abonado
+                FROM pagos
+                WHERE estado = 'Pagado'
+                GROUP BY student_id, program_id
+            ) prog_totales ON s.id = prog_totales.student_id AND p.id = prog_totales.program_id
+            WHERE s.business_id = $1
+              AND (s.archived IS NULL OR s.archived = FALSE)
+              ${extraCondition}
+              AND s.id NOT IN (
+                  SELECT DISTINCT student_id
+                  FROM pagos
+                  WHERE fecha_pago >= $2 AND fecha_pago <= $3
+              )
+            GROUP BY s.id, s.nombre, s.apellido, s.coordinador_id
+            ORDER BY s.apellido ASC, s.nombre ASC
+        `;
+
+        const { rows } = await pool.query(query, params);
+
+        const authHeader = req.headers['authorization'] || '';
+        const token      = authHeader.replace(/^Bearer\s+/i, '');
+        const usersMap   = await getUsersMapFromAuthService(token);
+
+        const enriched = rows.map((row) => ({
+            ...row,
+            coordinador_nombre: usersMap.get(Number(row.coordinador_id)) || null,
+        }));
+
+        res.status(200).json(enriched);
+    } catch (err) {
+        console.error('Error obteniendo estudiantes sin pago:', err);
+        res.status(500).json({ error: 'Error obteniendo estudiantes sin pago' });
+    }
+};
+
+// =====================================================================
+// 7. ACTUALIZAR PAGO
 // =====================================================================
 export const updatePagoController = async (req, res) => {
     const { id } = req.params;

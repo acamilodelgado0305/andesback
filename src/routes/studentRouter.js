@@ -6,6 +6,8 @@ import {
   getStudentByIdController,
   updateStudentController,
   deleteStudentController,
+  archiveStudentController,
+  restoreStudentController,
   updateEstadoStudentController,
   getStudentsByProgramTypeController,
   getStudentsByProgramaIdController,
@@ -76,8 +78,14 @@ router.put('/students/:id/graduate', authMiddleware, graduateStudentController);
 // PUT: Actualizar un estudiante por su ID (todos los campos)
 router.put('/students/:id', updateStudentController);
 
-// DELETE: Eliminar un estudiante por su ID
-router.delete('/students/:id', deleteStudentController);
+// PATCH: Archivar un estudiante (reemplaza el DELETE)
+router.patch('/students/:id/archive', authMiddleware, archiveStudentController);
+
+// PATCH: Restaurar un estudiante archivado
+router.patch('/students/:id/restore', authMiddleware, restoreStudentController);
+
+// DELETE: mantenido por compatibilidad — también archiva en lugar de eliminar
+router.delete('/students/:id', authMiddleware, deleteStudentController);
 
 // POST: Mover masivamente estudiantes a un programa
 router.post('/students/bulk-move-programa', authMiddleware, bulkMoveToPrograma);
