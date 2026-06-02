@@ -76,6 +76,26 @@ const runMigrations = async () => {
       SELECT id, programa_id FROM public.evaluaciones WHERE programa_id IS NOT NULL
       ON CONFLICT DO NOTHING;
     `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS public.student_comments (
+        id           SERIAL PRIMARY KEY,
+        student_id   int4 NOT NULL REFERENCES public.students(id) ON DELETE CASCADE,
+        business_id  int4,
+        user_id      int4,
+        autor_nombre varchar(255),
+        comentario   text NOT NULL,
+        created_at   timestamp DEFAULT CURRENT_TIMESTAMP,
+        updated_at   timestamp DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_student_comments_student
+        ON public.student_comments (student_id);
+    `);
+    await pool.query(`
+      ALTER TABLE public.estudiante_programas
+        ADD COLUMN IF NOT EXISTS monto_total_personalizado numeric;
+    `);
     console.log("Migraciones ejecutadas correctamente.");
   } catch (err) {
     console.error("Error ejecutando migraciones:", err);

@@ -222,7 +222,7 @@ export const getStudentsController = async (req, res) => {
           '[]'::json
         ) AS programas_asociados,
         COALESCE(
-          (SELECT SUM(p.monto_total)
+          (SELECT SUM(COALESCE(ep.monto_total_personalizado, p.monto_total))
            FROM estudiante_programas ep
            JOIN programas p ON ep.programa_id = p.id
            WHERE ep.estudiante_id = s.id),
@@ -1185,6 +1185,117 @@ export const bulkMoveToPrograma = async (req, res) => {
     return res.status(500).json({ error: 'Error interno al mover estudiantes.' });
   } finally {
     client.release();
+  }
+};
+
+// ============================================================
+// COMENTARIOS DEL ESTUDIANTE
+// ============================================================
+
+// GET /api/students/:id/comments
+export const getStudentCommentsController = async (req, res) => {
+  const { id } = req.params;
+  const businessId = req.user?.bid;
+
+  if (!id || isNaN(id)) {
+    return res.status(400).json({ error: 'ID de estudiante inválido.' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, student_id, user_id, autor_nombre, comentario, created_at, updated_at
+       FROM public.student_comments
+       WHERE student_id = $1
+         AND (business_id = $2 OR business_id IS NULL)
+       ORDER BY created_at DESC, id DESC;`,
+      [id, businessId]
+    );
+    return res.status(200).json(rows);
+  } catch (err) {
+    handleServerError(res, err, 'Error al obtener los comentarios del estudiante.');
+  }
+};
+
+// POST /api/students/:id/comments  body: { comentario }
+export const createStudentCommentController = async (req, res) => {
+  const { id } = req.params;
+  const { comentario } = req.body;
+  const businessId = req.user?.bid;
+  const userId = req.user?.id;
+  const autorNombre = req.user?.name || null;
+
+  if (!id || isNaN(id)) {
+    return res.status(400).json({ error: 'ID de estudiante inválido.' });
+  }
+  if (!comentario || !comentario.trim()) {
+    return res.status(400).json({ error: 'El comentario no puede estar vacío.' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO public.student_comments (student_id, business_id, user_id, autor_nombre, comentario)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, student_id, user_id, autor_nombre, comentario, created_at, updated_at;`,
+      [id, businessId, userId, autorNombre, comentario.trim()]
+    );
+    return res.status(201).json(rows[0]);
+  } catch (err) {
+    handleServerError(res, err, 'Error al crear el comentario del estudiante.');
+  }
+};
+
+// PUT /api/students/:id/comments/:commentId  body: { comentario }
+export const updateStudentCommentController = async (req, res) => {
+  const { commentId } = req.params;
+  const { comentario } = req.body;
+  const businessId = req.user?.bid;
+
+  if (!commentId || isNaN(commentId)) {
+    return res.status(400).json({ error: 'ID de comentario inválido.' });
+  }
+  if (!comentario || !comentario.trim()) {
+    return res.status(400).json({ error: 'El comentario no puede estar vacío.' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `UPDATE public.student_comments
+       SET comentario = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2 AND (business_id = $3 OR business_id IS NULL)
+       RETURNING id, student_id, user_id, autor_nombre, comentario, created_at, updated_at;`,
+      [comentario.trim(), commentId, businessId]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Comentario no encontrado.' });
+    }
+    return res.status(200).json(rows[0]);
+  } catch (err) {
+    handleServerError(res, err, 'Error al actualizar el comentario del estudiante.');
+  }
+};
+
+// DELETE /api/students/:id/comments/:commentId
+export const deleteStudentCommentController = async (req, res) => {
+  const { commentId } = req.params;
+  const businessId = req.user?.bid;
+
+  if (!commentId || isNaN(commentId)) {
+    return res.status(400).json({ error: 'ID de comentario inválido.' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `DELETE FROM public.student_comments
+       WHERE id = $1 AND (business_id = $2 OR business_id IS NULL)
+       RETURNING id;`,
+      [commentId, businessId]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Comentario no encontrado.' });
+    }
+    return res.status(200).json({ message: 'Comentario eliminado correctamente.' });
+  } catch (err) {
+    handleServerError(res, err, 'Error al eliminar el comentario del estudiante.');
   }
 };
 

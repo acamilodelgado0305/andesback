@@ -47,8 +47,10 @@ export const getStudentProgramInfoController = async (req, res) => {
         // 1. Busca los programas del estudiante.
         // 2. Suma todos los pagos con estado 'Pagado' asociados a ese programa.
         // 3. Calcula la deuda (Monto Total - Abonos).
+        // El total puede ser personalizado por estudiante (ep.monto_total_personalizado);
+        // si es NULL se usa el total del programa (p.monto_total).
         const query = `
-            SELECT 
+            SELECT
                 s.id AS student_id,
                 s.nombre || ' ' || s.apellido AS student_nombre,
                 COALESCE(
@@ -56,11 +58,13 @@ export const getStudentProgramInfoController = async (req, res) => {
                         json_build_object(
                             'programa_id', p.id,
                             'programa_nombre', p.nombre,
-                            'monto_total', COALESCE(p.monto_total, 0),
+                            'monto_total', COALESCE(ep.monto_total_personalizado, p.monto_total, 0),
+                            'monto_total_programa', COALESCE(p.monto_total, 0),
+                            'monto_personalizado', (ep.monto_total_personalizado IS NOT NULL),
                             'total_abonado', COALESCE(pagos_calc.total_pagado, 0),
-                            'saldo_pendiente', (COALESCE(p.monto_total, 0) - COALESCE(pagos_calc.total_pagado, 0))
+                            'saldo_pendiente', (COALESCE(ep.monto_total_personalizado, p.monto_total, 0) - COALESCE(pagos_calc.total_pagado, 0))
                         )
-                    ) FILTER (WHERE p.id IS NOT NULL), 
+                    ) FILTER (WHERE p.id IS NOT NULL),
                     '[]'::json
                 ) AS programas_financiero
             FROM students s
@@ -68,7 +72,7 @@ export const getStudentProgramInfoController = async (req, res) => {
             LEFT JOIN programas p ON ep.programa_id = p.id
             LEFT JOIN (
                 SELECT student_id, program_id, SUM(monto) as total_pagado
-                FROM pagos 
+                FROM pagos
                 WHERE estado = 'Pagado'
                 GROUP BY student_id, program_id
             ) pagos_calc ON s.id = pagos_calc.student_id AND p.id = pagos_calc.program_id
@@ -87,6 +91,51 @@ export const getStudentProgramInfoController = async (req, res) => {
     } catch (error) {
         console.error("Error al obtener info financiera:", error);
         return res.status(500).json({ message: "Error interno del servidor." });
+    }
+};
+
+// =====================================================================
+// 1b. ACTUALIZAR EL TOTAL PERSONALIZADO DE UN ESTUDIANTE EN UN PROGRAMA
+//     monto_total = null  -> vuelve a usar el total del programa
+//     monto_total = number -> override propio del estudiante (no afecta lo abonado)
+// =====================================================================
+export const updateStudentProgramTotalController = async (req, res) => {
+    const studentId = parseInt(req.params.student_id, 10);
+    const programaId = parseInt(req.params.programa_id, 10);
+    const { monto_total } = req.body;
+
+    if (!studentId || isNaN(studentId)) {
+        return res.status(400).json({ error: "ID de estudiante inválido." });
+    }
+    if (!programaId || isNaN(programaId)) {
+        return res.status(400).json({ error: "ID de programa inválido." });
+    }
+
+    let override = null;
+    if (monto_total !== null && monto_total !== undefined && monto_total !== "") {
+        override = parseFloat(monto_total);
+        if (isNaN(override) || override < 0) {
+            return res.status(400).json({ error: "El monto total debe ser un número válido mayor o igual a 0." });
+        }
+    }
+
+    try {
+        const { rows } = await pool.query(
+            `UPDATE estudiante_programas
+                SET monto_total_personalizado = $1
+              WHERE estudiante_id = $2 AND programa_id = $3
+            RETURNING estudiante_id, programa_id, monto_total_personalizado;`,
+            [override, studentId, programaId]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).json({ error: "El estudiante no está asociado a ese programa." });
+        }
+
+        return res.status(200).json(rows[0]);
+    } catch (err) {
+        console.error("Error actualizando total personalizado:", err);
+        return res.status(500).json({ error: "Error al actualizar el total del estudiante." });
     }
 };
 
@@ -308,12 +357,15 @@ export const getPagosController = async (req, res) => {
                 s.apellido      AS estudiante_apellido,
                 s.coordinador_id,
                 p.nombre        AS programa_nombre,
-                p.monto_total   AS programa_monto_total,
+                COALESCE(ep.monto_total_personalizado, p.monto_total) AS programa_monto_total,
                 COALESCE(prog_totales.total_abonado, 0) AS total_abonado
             FROM pagos pg
             JOIN tipos_pago tp ON pg.tipo_pago_id = tp.id
             JOIN students   s  ON pg.student_id   = s.id
             LEFT JOIN programas p ON pg.program_id = p.id
+            LEFT JOIN estudiante_programas ep
+                   ON ep.estudiante_id = pg.student_id
+                  AND ep.programa_id   = pg.program_id
             LEFT JOIN (
                 SELECT student_id, program_id, SUM(monto) AS total_abonado
                 FROM pagos
@@ -377,7 +429,7 @@ export const getStudentsWithoutPaymentController = async (req, res) => {
                     json_agg(
                         json_build_object(
                             'nombre',        p.nombre,
-                            'monto_total',   COALESCE(p.monto_total, 0),
+                            'monto_total',   COALESCE(ep.monto_total_personalizado, p.monto_total, 0),
                             'total_abonado', COALESCE(prog_totales.total_abonado, 0)
                         )
                     ) FILTER (WHERE p.nombre IS NOT NULL),
@@ -431,28 +483,50 @@ export const updatePagoController = async (req, res) => {
     const { id } = req.params;
     const {
         monto, fecha_pago, periodo_pagado, metodo_pago,
-        referencia_transaccion, estado, observaciones, program_id
+        referencia_transaccion, estado, observaciones, program_id,
+        tipo_pago_nombre,
     } = req.body;
 
     try {
+        // Cargar el pago actual para no sobrescribir con NULL los campos no enviados
+        const existingRes = await pool.query('SELECT * FROM pagos WHERE id = $1', [id]);
+        if (existingRes.rows.length === 0) {
+            return res.status(404).json({ error: 'Pago no encontrado' });
+        }
+        const current = existingRes.rows[0];
+
+        // Si cambian el concepto, resolvemos el nuevo tipo_pago_id
+        let tipoPagoId = current.tipo_pago_id;
+        if (tipo_pago_nombre) {
+            const tipoRes = await pool.query('SELECT id FROM tipos_pago WHERE nombre = $1', [tipo_pago_nombre]);
+            if (tipoRes.rows.length === 0) {
+                return res.status(400).json({ error: `Tipo de pago "${tipo_pago_nombre}" no existe.` });
+            }
+            tipoPagoId = tipoRes.rows[0].id;
+        }
+
         const query = `
             UPDATE pagos
-            SET monto = $1, fecha_pago = $2, periodo_pagado = $3, 
-                metodo_pago = $4, referencia_transaccion = $5, estado = $6, 
-                observaciones = $7, program_id = $8, updated_at = NOW()
-            WHERE id = $9
+            SET monto = $1, fecha_pago = $2, periodo_pagado = $3,
+                metodo_pago = $4, referencia_transaccion = $5, estado = $6,
+                observaciones = $7, program_id = $8, tipo_pago_id = $9, updated_at = NOW()
+            WHERE id = $10
             RETURNING *;
         `;
         const values = [
-            monto, fecha_pago, periodo_pagado, metodo_pago,
-            referencia_transaccion, estado, observaciones, program_id, id
+            monto !== undefined ? monto : current.monto,
+            fecha_pago !== undefined ? fecha_pago : current.fecha_pago,
+            periodo_pagado !== undefined ? periodo_pagado : current.periodo_pagado,
+            metodo_pago !== undefined ? metodo_pago : current.metodo_pago,
+            referencia_transaccion !== undefined ? referencia_transaccion : current.referencia_transaccion,
+            estado !== undefined ? estado : current.estado,
+            observaciones !== undefined ? observaciones : current.observaciones,
+            program_id !== undefined ? program_id : current.program_id,
+            tipoPagoId,
+            id,
         ];
 
         const result = await pool.query(query, values);
-
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'Pago no encontrado' });
-        }
         res.status(200).json(result.rows[0]);
     } catch (err) {
         console.error('Error actualizando pago:', err);

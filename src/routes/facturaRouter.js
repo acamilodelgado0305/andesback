@@ -11,6 +11,7 @@ import {
     getStudentProgramInfoController,          // Deuda y estado de cuenta
     getPaymentTypesController,                // Llenar select de tipos de pago
     getStudentsWithoutPaymentController,      // Estudiantes sin pago en período
+    updateStudentProgramTotalController,      // Total personalizado por estudiante
 } from '../controllers/paymentController.js';
 
 import { authMiddleware } from '../middlewares/authMiddleware.js';
@@ -68,6 +69,10 @@ router.get('/payments/student/:student_id/total-paid', getTotalPagosByStudentIdC
 // Esta ruta devuelve los programas del estudiante, el costo total, 
 // lo abonado hasta hoy y el saldo pendiente.
 router.get('/students/:student_id/program-info', getStudentProgramInfoController);
+
+// 4. Actualizar el total personalizado del estudiante en un programa
+//    body: { monto_total }  (null o "" para volver al total del programa)
+router.put('/students/:student_id/programas/:programa_id/monto-total', authMiddleware, updateStudentProgramTotalController);
 
 
 export default router;

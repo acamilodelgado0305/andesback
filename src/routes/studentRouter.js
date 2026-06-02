@@ -19,6 +19,10 @@ import {
   getStudentDocumentsController,
   deleteStudentDocumentController,
   bulkMoveToPrograma,
+  getStudentCommentsController,
+  createStudentCommentController,
+  updateStudentCommentController,
+  deleteStudentCommentController,
 } from '../controllers/studentController.js';
 
 import { authMiddleware } from '../middlewares/authMiddleware.js';
@@ -112,7 +116,13 @@ router.get("/students/:id/documents", getStudentDocumentsController);
 // routes/studentRoutes.js
 router.delete("/students/:studentId/documents/:documentId", deleteStudentDocumentController);
 
-
+// =======================================================
+// COMENTARIOS DEL ESTUDIANTE
+// =======================================================
+router.get('/students/:id/comments', authMiddleware, getStudentCommentsController);
+router.post('/students/:id/comments', authMiddleware, createStudentCommentController);
+router.put('/students/:id/comments/:commentId', authMiddleware, updateStudentCommentController);
+router.delete('/students/:id/comments/:commentId', authMiddleware, deleteStudentCommentController);
 
 
 

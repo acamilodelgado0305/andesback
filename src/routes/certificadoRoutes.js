@@ -5,7 +5,10 @@ import multer from 'multer'; // <-- 1. IMPORTANTE: Importar multer
 
 import {
     generarCertificadoController,
-    generarCarnetController
+    generarCarnetController,
+    enviarCertificadoController,
+    enviarCarnetController,
+    enviarDocumentosController
 } from '../controllers/certificadoController.js';
 
 import { generarCertificadoPDF } from '../controllers/certificadosPdfController.js';
@@ -28,5 +31,21 @@ router.post(
 );
 
 router.post('/generar-certificado-pdf', generarCertificadoPDF);
+
+// --- Envío por correo (genera el PDF y lo manda como adjunto) ---
+router.post('/enviar-certificado', enviarCertificadoController);
+
+router.post(
+    '/enviar-carnet',
+    upload.single('foto'),
+    enviarCarnetController
+);
+
+// Envía CERTIFICADO + CARNET en un solo correo (un solo endpoint)
+router.post(
+    '/enviar-documentos',
+    upload.single('foto'),
+    enviarDocumentosController
+);
 
 export default router;

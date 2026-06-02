@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import StudentRouter from "./routes/studentRouter.js";
-import InventarioRouter from "./routes/inventarioRouter.js";
 import RegistroRouter from "./routes/registroRouter.js";
 import authRouter from './routes/authRouter.js';
 import facturaRouter from './routes/facturaRouter.js';
@@ -77,7 +76,6 @@ app.use('/api', modulosRouter);
 // Rutas protegidas (requieren autenticación con token)
 app.use('/api', cierresRouter);
 app.use('/api', StudentRouter);
-app.use('/api', InventarioRouter);
 
 // Middleware para manejar errores (DEBE ir al final, después de todas las rutas)
 app.use((err, req, res, next) => {

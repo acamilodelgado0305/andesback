@@ -72,20 +72,16 @@ const getGradesByStudentIdController = async (req, res) => {
                 c.cerrado,
                 c.fecha_cierre
             FROM grades g
-            JOIN cierres c ON g.cierre_id = c.id
+            LEFT JOIN cierres c ON g.cierre_id = c.id
             JOIN materias m ON LOWER(TRIM(g.materia)) = LOWER(TRIM(m.nombre))
             JOIN estudiante_programas ep ON m.programa_id = ep.programa_id
             WHERE g.student_id = $1
               AND ep.estudiante_id = $1
               AND m.activa = true
-            ORDER BY c.created_at ASC, g.materia ASC
+            ORDER BY COALESCE(c.created_at, NOW()) ASC, g.materia ASC
         `;
 
         const result = await pool.query(query, [id]);
-
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'No se encontraron notas para este estudiante' });
-        }
 
         res.status(200).json(result.rows);
     } catch (err) {
