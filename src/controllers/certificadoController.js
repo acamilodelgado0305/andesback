@@ -64,6 +64,136 @@ import { enviarCorreoConAdjuntos, pdfDocABuffer } from '../services/mailService.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Helper para generar una plantilla de correo HTML profesional y responsiva
+const obtenerHtmlCorreo = ({ nombre, tipoDocumento, numeroDocumento, intensidadHoraria, tipoEnvio }) => {
+    const tituloBanner = "Curso de Manipulación de Alimentos";
+    const subtituloBanner = "Acreditación y Documentos Oficiales";
+    let introduccion = "";
+    let listaDocumentosHtml = "";
+
+    if (tipoEnvio === 'certificado') {
+        introduccion = "¡Felicitaciones! 🎉 Has completado satisfactoriamente tu formación. Adjunto a este correo encontrarás tu <strong>Certificado de Finalización</strong> en formato PDF.";
+        listaDocumentosHtml = `
+            <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 12px; display: flex; align-items: center;">
+                <span style="font-size: 24px; margin-right: 12px; line-height: 1;">📜</span>
+                <div>
+                    <h4 style="margin: 0; color: #1e293b; font-size: 14px; font-weight: 600;">Certificado de Finalización</h4>
+                    <p style="margin: 2px 0 0; color: #64748b; font-size: 12px;">Documento oficial que acredita la aprobación del curso.</p>
+                </div>
+            </div>
+        `;
+    } else if (tipoEnvio === 'carnet') {
+        introduccion = "Hola. Adjunto a este correo encontrarás tu <strong>Carnet Estudiantil</strong> oficial en formato PDF.";
+        listaDocumentosHtml = `
+            <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 12px; display: flex; align-items: center;">
+                <span style="font-size: 24px; margin-right: 12px; line-height: 1;">🪪</span>
+                <div>
+                    <h4 style="margin: 0; color: #1e293b; font-size: 14px; font-weight: 600;">Carnet de Manipulación de Alimentos</h4>
+                    <p style="margin: 2px 0 0; color: #64748b; font-size: 12px;">Identificación oficial de acreditación del curso.</p>
+                </div>
+            </div>
+        `;
+    } else {
+        introduccion = "¡Felicitaciones! 🎉 Has completado satisfactoriamente el curso de <strong>Manipulación de Alimentos</strong>. Adjunto a este correo encontrarás tus <strong>documentos oficiales</strong> en formato PDF:";
+        listaDocumentosHtml = `
+            <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 12px; display: flex; align-items: center;">
+                <span style="font-size: 24px; margin-right: 12px; line-height: 1;">📜</span>
+                <div>
+                    <h4 style="margin: 0; color: #1e293b; font-size: 14px; font-weight: 600;">Certificado de Finalización</h4>
+                    <p style="margin: 2px 0 0; color: #64748b; font-size: 12px;">Acredita la aprobación del curso.</p>
+                </div>
+            </div>
+            <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 12px; display: flex; align-items: center;">
+                <span style="font-size: 24px; margin-right: 12px; line-height: 1;">🪪</span>
+                <div>
+                    <h4 style="margin: 0; color: #1e293b; font-size: 14px; font-weight: 600;">Carnet Estudiantil</h4>
+                    <p style="margin: 2px 0 0; color: #64748b; font-size: 12px;">Documento de identificación y acreditación.</p>
+                </div>
+            </div>
+        `;
+    }
+
+    return `
+    <div style="margin:0;padding:0;background-color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f1f5f9;padding:32px 0;">
+        <tr>
+          <td align="center">
+            <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 15px rgba(0,0,0,0.05);border:1px solid #e2e8f0;">
+              <!-- Cabecera Corporativa -->
+              <tr>
+                <td style="background-color:#155153;padding:32px;text-align:center;border-bottom:4px solid #c5a059;">
+                  <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;letter-spacing:-0.5px;line-height:1.2;">
+                    ${tituloBanner}
+                  </h1>
+                  <p style="margin:6px 0 0;color:#cbd5e1;font-size:13px;letter-spacing:0.5px;text-transform:uppercase;">
+                    ${subtituloBanner}
+                  </p>
+                </td>
+              </tr>
+              <!-- Contenido -->
+              <tr>
+                <td style="padding:40px 32px 32px 32px;">
+                  <h2 style="margin:0 0 16px;color:#1e293b;font-size:18px;font-weight:700;letter-spacing:-0.3px;">
+                    Hola ${nombre},
+                  </h2>
+                  <p style="margin:0 0 24px;color:#334155;font-size:14px;line-height:1.6;">
+                    ${introduccion}
+                  </p>
+                  
+                  <!-- Lista de Documentos -->
+                  <div style="margin-bottom:24px;">
+                    ${listaDocumentosHtml}
+                  </div>
+
+                  <!-- Detalle de Acreditación -->
+                  <h3 style="margin:0 0 12px;color:#475569;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">
+                    Detalles del Registro:
+                  </h3>
+                  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;background-color:#f8fafc;">
+                    <tr>
+                      <td style="padding:14px 16px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#64748b;width:35%;"><strong>Estudiante:</strong></td>
+                      <td style="padding:14px 16px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#1e293b;">${nombre}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding:14px 16px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#64748b;"><strong>Identificación:</strong></td>
+                      <td style="padding:14px 16px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#1e293b;">${tipoDocumento} ${numeroDocumento}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding:14px 16px;font-size:13px;color:#64748b;"><strong>Intensidad Horaria:</strong></td>
+                      <td style="padding:14px 16px;font-size:13px;color:#1e293b;">${intensidadHoraria || '40'} horas</td>
+                    </tr>
+                  </table>
+
+                  <p style="margin:0 0 8px;color:#334155;font-size:13px;line-height:1.6;">
+                    Te recomendamos descargar y almacenar estos archivos para tu uso oficial.
+                  </p>
+                  <p style="margin:0 0 8px;color:#64748b;font-size:12px;line-height:1.6;font-style:italic;">
+                    * Ambos documentos cuentan con firma digital y un código QR de autenticidad verificable.
+                  </p>
+                </td>
+              </tr>
+              <!-- Firma y Despedida -->
+              <tr>
+                <td style="background-color:#f8fafc;padding:24px 32px;border-top:1px solid #e2e8f0;text-align:center;">
+                  <p style="margin:0;color:#155153;font-size:13px;font-weight:700;letter-spacing:0.3px;">
+                    Alianza Capacitarte
+                  </p>
+                  <p style="margin:4px 0 0;color:#64748b;font-size:12px;">
+                    Notificaciones Automáticas
+                  </p>
+                  <p style="margin:20px 0 0;color:#94a3b8;font-size:10px;line-height:1.4;">
+                    Este es un correo de notificación automática. Por favor no respondas a este mensaje.
+                  </p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </div>
+    `;
+};
+
 // ──────────────────────────────────────────────────────────────────────────
 // Funciones de DIBUJO reutilizables: dibujan sobre un doc PDFKit ya creado.
 // NO hacen pipe ni end — eso queda a cargo de quien las llama (descarga o correo).
@@ -71,7 +201,7 @@ const __dirname = path.dirname(__filename);
 
 // Dibuja el contenido del CERTIFICADO sobre el doc.
 const dibujarCertificado = async (doc, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria }) => {
-    const certificadoImagePath = path.join(__dirname, '..', 'imagenes', 'certificado.png');
+    const certificadoImagePath = path.join(__dirname, '..', 'imagenes', 'certificado.jpg');
     const certificadoImageBuffer = fs.readFileSync(certificadoImagePath);
 
     doc.image(certificadoImageBuffer, 0, 0, { width: doc.page.width, height: doc.page.height });
@@ -125,8 +255,8 @@ const dibujarCertificado = async (doc, { nombre, numeroDocumento, tipoDocumento,
 // Dibuja el contenido del CARNET (frontal + posterior) sobre el doc.
 // fotoBuffer es opcional (Buffer de la foto del estudiante).
 const dibujarCarnet = async (doc, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria }, fotoBuffer) => {
-    const frontalImagePath = path.join(__dirname, '..', 'imagenes', 'frontal.png');
-    const posteriorImagePath = path.join(__dirname, '..', 'imagenes', 'posterior.png');
+    const frontalImagePath = path.join(__dirname, '..', 'imagenes', 'frontal.jpg');
+    const posteriorImagePath = path.join(__dirname, '..', 'imagenes', 'posterior.jpg');
     const frontalImageBuffer = fs.readFileSync(frontalImagePath);
     const posteriorImageBuffer = fs.readFileSync(posteriorImagePath);
 
@@ -286,11 +416,8 @@ const enviarCertificadoController = async (req, res) => {
 
         await enviarCorreoConAdjuntos({
             to: email,
-            subject: 'Tu certificado de finalización',
-            html: `
-                <p>Hola <strong>${nombre}</strong>,</p>
-                <p>Adjuntamos tu certificado de finalización. ¡Felicitaciones por completar tu formación!</p>
-            `,
+            subject: 'Tu certificado de finalización — Manipulación de Alimentos',
+            html: obtenerHtmlCorreo({ nombre, tipoDocumento, numeroDocumento, intensidadHoraria, tipoEnvio: 'certificado' }),
             adjuntos: [{ filename: fileName, content: pdfBuffer }],
         });
 
@@ -329,12 +456,8 @@ const enviarCarnetController = async (req, res) => {
 
         await enviarCorreoConAdjuntos({
             to: email,
-            subject: 'Tu carnet estudiantil',
-            html: `
-                <p>Hola <strong>${nombre}</strong>,</p>
-                <p>Adjuntamos tu carnet estudiantil en formato PDF.</p>
-                <p>Saludos cordiales,<br/>Fundación Educativa Villa de los Andes</p>
-            `,
+            subject: 'Tu carnet estudiantil — Manipulación de Alimentos',
+            html: obtenerHtmlCorreo({ nombre, tipoDocumento, numeroDocumento, intensidadHoraria, tipoEnvio: 'carnet' }),
             adjuntos: [{ filename: fileName, content: pdfBuffer }],
         });
 
@@ -386,80 +509,7 @@ const enviarDocumentosController = async (req, res) => {
         await enviarCorreoConAdjuntos({
             to: email,
             subject: 'Certificado y carnet — Manipulación de Alimentos',
-            html: `
-            <div style="margin:0;padding:0;background-color:#f4f6f8;font-family:Arial,Helvetica,sans-serif;">
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f6f8;padding:24px 0;">
-                <tr>
-                  <td align="center">
-                    <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,0.06);">
-                      <!-- Encabezado -->
-                      <tr>
-                        <td style="background-color:#155153;padding:28px 32px;text-align:center;">
-                          <h1 style="margin:0;color:#ffffff;font-size:20px;font-weight:700;line-height:1.3;">
-                            Curso de Manipulación de Alimentos
-                          </h1>
-                          <p style="margin:6px 0 0;color:#cfe3e3;font-size:13px;">Certificación de finalización</p>
-                        </td>
-                      </tr>
-                      <!-- Cuerpo -->
-                      <tr>
-                        <td style="padding:32px;">
-                          <p style="margin:0 0 16px;color:#1f2937;font-size:15px;line-height:1.6;">
-                            Hola <strong>${nombre}</strong>,
-                          </p>
-                          <p style="margin:0 0 16px;color:#374151;font-size:14px;line-height:1.6;">
-                            ¡Felicitaciones! 🎉 Has completado satisfactoriamente el curso de
-                            <strong>Manipulación de Alimentos</strong>. Adjunto a este correo encontrarás
-                            <strong>dos documentos en PDF</strong>:
-                          </p>
-                          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px;">
-                            <tr>
-                              <td style="padding:12px 16px;background-color:#f0f7f7;border-radius:8px;border-left:4px solid #155153;">
-                                <p style="margin:0;color:#155153;font-size:14px;font-weight:700;">📜 Certificado de finalización</p>
-                                <p style="margin:4px 0 0;color:#6b7280;font-size:13px;">Acredita la aprobación del curso.</p>
-                              </td>
-                            </tr>
-                            <tr><td style="height:10px;line-height:10px;font-size:10px;">&nbsp;</td></tr>
-                            <tr>
-                              <td style="padding:12px 16px;background-color:#f0f7f7;border-radius:8px;border-left:4px solid #155153;">
-                                <p style="margin:0;color:#155153;font-size:14px;font-weight:700;">🪪 Carnet de manipulación de alimentos</p>
-                                <p style="margin:4px 0 0;color:#6b7280;font-size:13px;">Documento de identificación del curso.</p>
-                              </td>
-                            </tr>
-                          </table>
-                          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px;border:1px solid #e5e7eb;border-radius:8px;">
-                            <tr>
-                              <td style="padding:14px 16px;">
-                                <p style="margin:0 0 4px;color:#374151;font-size:13px;"><strong>Titular:</strong> ${nombre}</p>
-                                <p style="margin:0 0 4px;color:#374151;font-size:13px;"><strong>Documento:</strong> ${tipoDocumento} ${numeroDocumento}</p>
-                                <p style="margin:0;color:#374151;font-size:13px;"><strong>Intensidad horaria:</strong> ${intensidadHoraria} horas</p>
-                              </td>
-                            </tr>
-                          </table>
-                          <p style="margin:0 0 8px;color:#374151;font-size:14px;line-height:1.6;">
-                            Te recomendamos descargar y guardar ambos documentos. El certificado y el carnet
-                            cuentan con un código QR de verificación de autenticidad.
-                          </p>
-                        </td>
-                      </tr>
-                      <!-- Pie -->
-                      <tr>
-                        <td style="background-color:#f9fafb;padding:20px 32px;text-align:center;border-top:1px solid #eef0f2;">
-                          <p style="margin:0;color:#6b7280;font-size:13px;line-height:1.5;">
-                            Saludos cordiales,<br/>
-                           
-                          </p>
-                          <p style="margin:10px 0 0;color:#9ca3af;font-size:11px;">
-                            Este es un correo automático, por favor no respondas a este mensaje.
-                          </p>
-                        </td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-              </table>
-            </div>
-            `,
+            html: obtenerHtmlCorreo({ nombre, tipoDocumento, numeroDocumento, intensidadHoraria, tipoEnvio: 'ambos' }),
             adjuntos: [
                 { filename: certFileName, content: certBuffer },
                 { filename: carnetFileName, content: carnetBuffer },
