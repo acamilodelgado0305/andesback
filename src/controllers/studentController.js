@@ -417,6 +417,12 @@ export const getStudentByIdController = async (req, res) => {
       updated_at: flatStudent.updated_at,
       posible_graduacion: flatStudent.posible_graduacion,
 
+      // Paz y salvo (marcado manualmente)
+      paz_salvo_academico: flatStudent.paz_salvo_academico ?? false,
+      paz_salvo_financiero: flatStudent.paz_salvo_financiero ?? false,
+      paz_salvo_academico_fecha: flatStudent.paz_salvo_academico_fecha ?? null,
+      paz_salvo_financiero_fecha: flatStudent.paz_salvo_financiero_fecha ?? null,
+
       acudiente: flatStudent.nombre_acudiente ? {
         nombre:        flatStudent.nombre_acudiente,
         tipo_documento:flatStudent.tipo_documento_acudiente,
@@ -518,6 +524,10 @@ const getStudentByDocumentController = async (req, res) => {
       created_at: flatStudent.created_at,
       updated_at: flatStudent.updated_at,
       posible_graduacion: flatStudent.posible_graduacion,
+      paz_salvo_academico: flatStudent.paz_salvo_academico ?? false,
+      paz_salvo_financiero: flatStudent.paz_salvo_financiero ?? false,
+      paz_salvo_academico_fecha: flatStudent.paz_salvo_academico_fecha ?? null,
+      paz_salvo_financiero_fecha: flatStudent.paz_salvo_financiero_fecha ?? null,
       acudiente: flatStudent.nombre_acudiente ? {
         nombre:         flatStudent.nombre_acudiente,
         tipo_documento: flatStudent.tipo_documento_acudiente,
@@ -959,6 +969,75 @@ export const updatePosibleGraduacionStudentController = async (req, res) => {
     });
   } catch (err) {
     handleServerError(res, err, 'Error actualizando estado de posible graduación del estudiante.');
+  }
+};
+
+// =======================================================
+// LÓGICA DE PAZ Y SALVO (PATCH /students/:id/paz-salvo)
+// Marca manualmente paz y salvo académico y/o financiero.
+// Body (al menos uno): { paz_salvo_academico?: boolean, paz_salvo_financiero?: boolean }
+// Al marcar en TRUE se registra la fecha; al marcar en FALSE la fecha se limpia.
+// =======================================================
+export const updatePazSalvoController = async (req, res) => {
+  const studentId = parseInt(req.params.id, 10);
+  const { paz_salvo_academico, paz_salvo_financiero } = req.body;
+
+  if (!studentId || isNaN(studentId)) {
+    return res.status(400).json({ error: 'ID de estudiante inválido.' });
+  }
+
+  const setClauses = [];
+  const params = [];
+  let idx = 1;
+
+  if (paz_salvo_academico !== undefined) {
+    if (typeof paz_salvo_academico !== 'boolean') {
+      return res.status(400).json({ error: 'paz_salvo_academico debe ser boolean (true/false).' });
+    }
+    setClauses.push(`paz_salvo_academico = $${idx++}`);
+    params.push(paz_salvo_academico);
+    setClauses.push(`paz_salvo_academico_fecha = ${paz_salvo_academico ? 'CURRENT_TIMESTAMP' : 'NULL'}`);
+  }
+
+  if (paz_salvo_financiero !== undefined) {
+    if (typeof paz_salvo_financiero !== 'boolean') {
+      return res.status(400).json({ error: 'paz_salvo_financiero debe ser boolean (true/false).' });
+    }
+    setClauses.push(`paz_salvo_financiero = $${idx++}`);
+    params.push(paz_salvo_financiero);
+    setClauses.push(`paz_salvo_financiero_fecha = ${paz_salvo_financiero ? 'CURRENT_TIMESTAMP' : 'NULL'}`);
+  }
+
+  if (setClauses.length === 0) {
+    return res.status(400).json({
+      error: 'Debes enviar paz_salvo_academico y/o paz_salvo_financiero (boolean).',
+    });
+  }
+
+  setClauses.push('updated_at = CURRENT_TIMESTAMP');
+  params.push(studentId);
+
+  try {
+    const result = await pool.query(
+      `UPDATE students
+       SET ${setClauses.join(', ')}
+       WHERE id = $${idx}
+       RETURNING id, nombre, apellido,
+                 paz_salvo_academico, paz_salvo_financiero,
+                 paz_salvo_academico_fecha, paz_salvo_financiero_fecha;`,
+      params
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Estudiante no encontrado.' });
+    }
+
+    res.status(200).json({
+      message: 'Paz y salvo actualizado correctamente.',
+      student: result.rows[0],
+    });
+  } catch (err) {
+    handleServerError(res, err, 'Error actualizando el paz y salvo del estudiante.');
   }
 };
 

@@ -108,6 +108,10 @@ const getGradesByStudentDocumentController = async (req, res) => {
                 s.nombre,
                 s.apellido,
                 s.numero_documento,
+                s.paz_salvo_academico,
+                s.paz_salvo_financiero,
+                s.paz_salvo_academico_fecha,
+                s.paz_salvo_financiero_fecha,
                 COALESCE(
                     (
                         SELECT string_agg(p.nombre, ', ' ORDER BY p.nombre)
@@ -138,6 +142,10 @@ const getGradesByStudentDocumentController = async (req, res) => {
             apellido: studentDataFromDB.apellido,
             programa_nombre: studentDataFromDB.programa_nombre || 'No asignado',
             documento: studentDataFromDB.numero_documento,
+            paz_salvo_academico: studentDataFromDB.paz_salvo_academico ?? false,
+            paz_salvo_financiero: studentDataFromDB.paz_salvo_financiero ?? false,
+            paz_salvo_academico_fecha: studentDataFromDB.paz_salvo_academico_fecha ?? null,
+            paz_salvo_financiero_fecha: studentDataFromDB.paz_salvo_financiero_fecha ?? null,
         };
 
         // Notas filtradas por materias del programa del estudiante,

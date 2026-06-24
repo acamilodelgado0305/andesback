@@ -14,6 +14,7 @@ import {
   getStudentsByCoordinatorIdController,
   getStudentByDocumentController,
   updatePosibleGraduacionStudentController,
+  updatePazSalvoController,
   graduateStudentController,
   uploadStudentDocumentController,
   getStudentDocumentsController,
@@ -104,6 +105,9 @@ router.post('/upload-students', upload.single('file'), uploadStudentsController)
 
 // PATCH /students/:id/posible-graduacion
 router.patch('/students/:id/posible-graduacion', updatePosibleGraduacionStudentController);
+
+// PATCH /students/:id/paz-salvo  → marcar paz y salvo académico y/o financiero
+router.patch('/students/:id/paz-salvo', authMiddleware, updatePazSalvoController);
 
 router.post(
   "/students/:id/document",
