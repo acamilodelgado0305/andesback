@@ -122,6 +122,31 @@ const runMigrations = async () => {
       CREATE INDEX IF NOT EXISTS idx_clase_presentaciones_clase
         ON public.clase_presentaciones(clase_id);
     `);
+    // Enlaces de inscripción por coordinador (varios por programa). Reemplaza el
+    // enlace único legacy en programas.join_token. Ver migration_programa_join_links.sql.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS public.programa_join_links (
+        id             SERIAL PRIMARY KEY,
+        programa_id    INTEGER NOT NULL REFERENCES public.programas(id) ON DELETE CASCADE,
+        business_id    INTEGER,
+        coordinador_id INTEGER NOT NULL,
+        token          TEXT    NOT NULL UNIQUE,
+        enabled        BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at     TIMESTAMP NOT NULL DEFAULT NOW(),
+        CONSTRAINT programa_join_links_prog_coord_uniq UNIQUE (programa_id, coordinador_id)
+      );
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_programa_join_links_programa
+        ON public.programa_join_links (programa_id);
+    `);
+    await pool.query(`
+      INSERT INTO public.programa_join_links (programa_id, business_id, coordinador_id, token, enabled, created_at)
+      SELECT id, business_id, join_coordinador_id, join_token, COALESCE(join_enabled, TRUE), NOW()
+      FROM public.programas
+      WHERE join_token IS NOT NULL AND join_coordinador_id IS NOT NULL
+      ON CONFLICT (token) DO NOTHING;
+    `);
     console.log("Migraciones ejecutadas correctamente.");
   } catch (err) {
     console.error("Error ejecutando migraciones:", err);

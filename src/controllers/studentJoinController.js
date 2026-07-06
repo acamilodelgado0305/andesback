@@ -57,16 +57,31 @@ export const joinPrograma = async (req, res) => {
   const documento = String(numero_documento).trim();
 
   try {
-    const { rows: progRows } = await pool.query(
-      `SELECT id, nombre, business_id, join_coordinador_id
-       FROM programas
-       WHERE join_token = $1 AND join_enabled = true AND activo = true;`,
+    // 1) Enlaces por coordinador (tabla nueva): el coordinador sale del enlace.
+    const { rows: linkRows } = await pool.query(
+      `SELECT p.id, p.nombre, p.business_id, l.coordinador_id
+       FROM programa_join_links l
+       JOIN programas p ON p.id = l.programa_id
+       WHERE l.token = $1 AND l.enabled = true AND p.activo = true;`,
       [token]
     );
-    if (!progRows.length) {
+
+    let programa = linkRows[0];
+
+    // 2) Compatibilidad: enlace único legacy en la tabla programas.
+    if (!programa) {
+      const { rows: progRows } = await pool.query(
+        `SELECT id, nombre, business_id, join_coordinador_id AS coordinador_id
+         FROM programas
+         WHERE join_token = $1 AND join_enabled = true AND activo = true;`,
+        [token]
+      );
+      programa = progRows[0];
+    }
+
+    if (!programa) {
       return res.status(404).json({ ok: false, error: 'Enlace de inscripción inválido o inactivo.' });
     }
-    const programa = progRows[0];
 
     const { rows: existingRows } = await pool.query(
       `SELECT id FROM students WHERE numero_documento = $1 AND business_id = $2 LIMIT 1;`,
@@ -96,7 +111,7 @@ export const joinPrograma = async (req, res) => {
         const result = await insertStudentToDB(
           {
             nombre, apellido, email, tipoDocumento, numeroDocumento: documento,
-            coordinador_id: programa.join_coordinador_id,
+            coordinador_id: programa.coordinador_id,
             business_id: programa.business_id,
             programasIds: [programa.id],
           },

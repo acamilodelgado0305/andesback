@@ -411,12 +411,24 @@ export const getJoinInfo = async (req, res) => {
   const { token } = req.params;
 
   try {
-    const { rows } = await pool.query(
-      `SELECT id, nombre, tipo_programa, descripcion, duracion_meses
-       FROM programas
-       WHERE join_token = $1 AND join_enabled = true AND activo = true;`,
+    // 1) Enlaces por coordinador (tabla nueva).
+    let { rows } = await pool.query(
+      `SELECT p.id, p.nombre, p.tipo_programa, p.descripcion, p.duracion_meses
+       FROM programa_join_links l
+       JOIN programas p ON p.id = l.programa_id
+       WHERE l.token = $1 AND l.enabled = true AND p.activo = true;`,
       [token]
     );
+
+    // 2) Compatibilidad: enlace único legacy en la tabla programas.
+    if (rows.length === 0) {
+      ({ rows } = await pool.query(
+        `SELECT id, nombre, tipo_programa, descripcion, duracion_meses
+         FROM programas
+         WHERE join_token = $1 AND join_enabled = true AND activo = true;`,
+        [token]
+      ));
+    }
 
     if (rows.length === 0) {
       return res.status(404).json({ message: "Enlace de inscripción inválido o inactivo." });
@@ -425,6 +437,166 @@ export const getJoinInfo = async (req, res) => {
   } catch (err) {
     console.error("Error en getJoinInfo:", err);
     return res.status(500).json({ message: "Error al consultar el enlace de inscripción." });
+  }
+};
+
+// ================================================================
+// MÚLTIPLES ENLACES POR COORDINADOR (programa_join_links)
+// ================================================================
+
+// --- GET lista de enlaces de inscripción de un programa ---
+export const listJoinLinks = async (req, res) => {
+  const businessId = req.user?.bid;
+  const { id } = req.params;
+
+  if (!businessId) {
+    return res.status(400).json({ message: "Token sin business asociado." });
+  }
+
+  try {
+    const prog = await pool.query(
+      `SELECT id FROM programas WHERE id = $1 AND business_id = $2;`,
+      [id, businessId]
+    );
+    if (prog.rows.length === 0) {
+      return res.status(404).json({ message: "Programa no encontrado." });
+    }
+
+    const { rows } = await pool.query(
+      `SELECT id, programa_id, coordinador_id, token, enabled, created_at
+       FROM programa_join_links
+       WHERE programa_id = $1
+       ORDER BY created_at ASC, id ASC;`,
+      [id]
+    );
+    return res.status(200).json({ data: rows });
+  } catch (err) {
+    console.error("Error en listJoinLinks:", err);
+    return res.status(500).json({ message: "Error al listar los enlaces de inscripción." });
+  }
+};
+
+// --- POST crear un enlace para un coordinador ---
+export const createJoinLink = async (req, res) => {
+  const businessId = req.user?.bid;
+  const { id } = req.params;
+  const { coordinador_id } = req.body;
+
+  if (!businessId) {
+    return res.status(400).json({ message: "Token sin business asociado." });
+  }
+  if (!coordinador_id) {
+    return res.status(400).json({ message: 'El campo "coordinador_id" es obligatorio.' });
+  }
+
+  try {
+    const prog = await pool.query(
+      `SELECT id FROM programas WHERE id = $1 AND business_id = $2;`,
+      [id, businessId]
+    );
+    if (prog.rows.length === 0) {
+      return res.status(404).json({ message: "Programa no encontrado." });
+    }
+
+    const token = crypto.randomBytes(9).toString("base64url");
+    const { rows } = await pool.query(
+      `INSERT INTO programa_join_links (programa_id, business_id, coordinador_id, token, enabled)
+       VALUES ($1, $2, $3, $4, TRUE)
+       RETURNING id, programa_id, coordinador_id, token, enabled, created_at;`,
+      [id, businessId, coordinador_id, token]
+    );
+    return res.status(201).json({ message: "Enlace generado correctamente.", data: rows[0] });
+  } catch (err) {
+    if (err.code === "23505") {
+      return res.status(409).json({ message: "Este coordinador ya tiene un enlace en este programa." });
+    }
+    console.error("Error en createJoinLink:", err);
+    return res.status(500).json({ message: "Error al generar el enlace de inscripción." });
+  }
+};
+
+// --- PATCH activar/desactivar un enlace específico ---
+export const setJoinLinkEnabled = async (req, res) => {
+  const businessId = req.user?.bid;
+  const { id, linkId } = req.params;
+  const { enabled } = req.body;
+
+  if (!businessId) {
+    return res.status(400).json({ message: "Token sin business asociado." });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `UPDATE programa_join_links l
+       SET enabled = $1
+       FROM programas p
+       WHERE l.id = $2 AND l.programa_id = $3 AND p.id = l.programa_id AND p.business_id = $4
+       RETURNING l.id, l.programa_id, l.coordinador_id, l.token, l.enabled, l.created_at;`,
+      [!!enabled, linkId, id, businessId]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "Enlace no encontrado." });
+    }
+    return res.status(200).json({ message: "Enlace actualizado correctamente.", data: rows[0] });
+  } catch (err) {
+    console.error("Error en setJoinLinkEnabled:", err);
+    return res.status(500).json({ message: "Error al actualizar el enlace de inscripción." });
+  }
+};
+
+// --- POST regenerar el token de un enlace específico ---
+export const regenerateJoinLink = async (req, res) => {
+  const businessId = req.user?.bid;
+  const { id, linkId } = req.params;
+
+  if (!businessId) {
+    return res.status(400).json({ message: "Token sin business asociado." });
+  }
+
+  try {
+    const token = crypto.randomBytes(9).toString("base64url");
+    const { rows } = await pool.query(
+      `UPDATE programa_join_links l
+       SET token = $1, enabled = TRUE
+       FROM programas p
+       WHERE l.id = $2 AND l.programa_id = $3 AND p.id = l.programa_id AND p.business_id = $4
+       RETURNING l.id, l.programa_id, l.coordinador_id, l.token, l.enabled, l.created_at;`,
+      [token, linkId, id, businessId]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "Enlace no encontrado." });
+    }
+    return res.status(200).json({ message: "Enlace regenerado correctamente.", data: rows[0] });
+  } catch (err) {
+    console.error("Error en regenerateJoinLink:", err);
+    return res.status(500).json({ message: "Error al regenerar el enlace de inscripción." });
+  }
+};
+
+// --- DELETE eliminar un enlace específico ---
+export const deleteJoinLink = async (req, res) => {
+  const businessId = req.user?.bid;
+  const { id, linkId } = req.params;
+
+  if (!businessId) {
+    return res.status(400).json({ message: "Token sin business asociado." });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `DELETE FROM programa_join_links l
+       USING programas p
+       WHERE l.id = $1 AND l.programa_id = $2 AND p.id = l.programa_id AND p.business_id = $3
+       RETURNING l.id;`,
+      [linkId, id, businessId]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "Enlace no encontrado." });
+    }
+    return res.status(200).json({ message: "Enlace eliminado correctamente." });
+  } catch (err) {
+    console.error("Error en deleteJoinLink:", err);
+    return res.status(500).json({ message: "Error al eliminar el enlace de inscripción." });
   }
 };
 
