@@ -96,6 +96,32 @@ const runMigrations = async () => {
       ALTER TABLE public.estudiante_programas
         ADD COLUMN IF NOT EXISTS monto_total_personalizado numeric;
     `);
+    await pool.query(`
+      ALTER TABLE public.programas
+        ADD COLUMN IF NOT EXISTS join_token varchar(20) UNIQUE,
+        ADD COLUMN IF NOT EXISTS join_enabled boolean NOT NULL DEFAULT false,
+        ADD COLUMN IF NOT EXISTS join_coordinador_id int4;
+    `);
+    // Presentaciones de una clase (PDF/PPTX/SVG) para el visor 16:9. 1 fila por
+    // archivo, misma filosofía que modulo_pdfs. Ver migration_clase_presentaciones.sql.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS public.clase_presentaciones (
+        id          SERIAL PRIMARY KEY,
+        clase_id    INTEGER NOT NULL REFERENCES public.clases(id) ON DELETE CASCADE,
+        modulo_id   INTEGER,
+        business_id INTEGER,
+        nombre      VARCHAR(255),
+        tipo        VARCHAR(10),
+        url         TEXT,
+        gcs_path    TEXT,
+        orden       INTEGER NOT NULL DEFAULT 0,
+        created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_clase_presentaciones_clase
+        ON public.clase_presentaciones(clase_id);
+    `);
     console.log("Migraciones ejecutadas correctamente.");
   } catch (err) {
     console.error("Error ejecutando migraciones:", err);

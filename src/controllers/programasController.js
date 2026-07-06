@@ -1,5 +1,6 @@
 // src/controllers/programasController.js
 import pool from "../database.js";
+import crypto from "crypto";
 
 // --- CREATE ---
 export const createPrograma = async (req, res) => {
@@ -231,6 +232,199 @@ export const getProgramaDetalle = async (req, res) => {
   } catch (err) {
     console.error('Error en getProgramaDetalle:', err);
     return res.status(500).json({ message: 'Error al obtener detalle del programa.' });
+  }
+};
+
+// ================================================================
+// DOCENTES DEL PROGRAMA (relación muchos a muchos)
+// ================================================================
+
+// --- GET docentes asociados a un programa ---
+export const getProgramaDocentes = async (req, res) => {
+  const businessId = req.user?.bid;
+  const { id } = req.params;
+  if (!businessId) {
+    return res.status(400).json({ message: "Token sin business asociado." });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT d.id, d.nombre_completo, d.email, d.especialidad,
+              pd.created_at AS asociado_en
+       FROM programa_docentes pd
+       JOIN docentes d ON d.id = pd.docente_id
+       WHERE pd.programa_id = $1 AND pd.business_id = $2
+       ORDER BY d.nombre_completo ASC;`,
+      [id, businessId]
+    );
+    return res.status(200).json(rows);
+  } catch (err) {
+    console.error("Error en getProgramaDocentes:", err);
+    return res.status(500).json({ message: "Error al obtener los docentes del programa." });
+  }
+};
+
+// --- POST asociar un docente a un programa ---
+export const addProgramaDocente = async (req, res) => {
+  const businessId = req.user?.bid;
+  const { id } = req.params;
+  const { docente_id } = req.body;
+
+  if (!businessId) {
+    return res.status(400).json({ message: "Token sin business asociado." });
+  }
+  if (!docente_id) {
+    return res.status(400).json({ message: 'El campo "docente_id" es obligatorio.' });
+  }
+
+  try {
+    // Verificar que el programa pertenece al negocio
+    const { rows: prog } = await pool.query(
+      "SELECT id FROM programas WHERE id = $1 AND business_id = $2;",
+      [id, businessId]
+    );
+    if (!prog.length) {
+      return res.status(404).json({ message: "Programa no encontrado." });
+    }
+
+    // Verificar que el docente pertenece al negocio
+    const { rows: doc } = await pool.query(
+      "SELECT id FROM docentes WHERE id = $1 AND business_id = $2;",
+      [docente_id, businessId]
+    );
+    if (!doc.length) {
+      return res.status(404).json({ message: "Docente no encontrado." });
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO programa_docentes (programa_id, docente_id, business_id)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (programa_id, docente_id) DO NOTHING
+       RETURNING *;`,
+      [id, docente_id, businessId]
+    );
+
+    if (!rows.length) {
+      return res.status(409).json({ message: "El docente ya está asociado a este programa." });
+    }
+    return res.status(201).json({ message: "Docente asociado correctamente.", data: rows[0] });
+  } catch (err) {
+    console.error("Error en addProgramaDocente:", err);
+    return res.status(500).json({ message: "Error al asociar el docente al programa." });
+  }
+};
+
+// --- DELETE quitar un docente de un programa ---
+export const removeProgramaDocente = async (req, res) => {
+  const businessId = req.user?.bid;
+  const { id, docenteId } = req.params;
+
+  if (!businessId) {
+    return res.status(400).json({ message: "Token sin business asociado." });
+  }
+
+  try {
+    const { rowCount } = await pool.query(
+      `DELETE FROM programa_docentes
+       WHERE programa_id = $1 AND docente_id = $2 AND business_id = $3;`,
+      [id, docenteId, businessId]
+    );
+    if (rowCount === 0) {
+      return res.status(404).json({ message: "Asociación no encontrada." });
+    }
+    return res.sendStatus(204);
+  } catch (err) {
+    console.error("Error en removeProgramaDocente:", err);
+    return res.status(500).json({ message: "Error al quitar el docente del programa." });
+  }
+};
+
+// ================================================================
+// ENLACE DE INSCRIPCIÓN (join link estilo Classroom)
+// ================================================================
+
+// --- POST generar/regenerar el enlace de inscripción ---
+export const generateJoinLink = async (req, res) => {
+  const businessId = req.user?.bid;
+  const { id } = req.params;
+  const { coordinador_id } = req.body;
+
+  if (!businessId) {
+    return res.status(400).json({ message: "Token sin business asociado." });
+  }
+  if (!coordinador_id) {
+    return res.status(400).json({ message: 'El campo "coordinador_id" es obligatorio.' });
+  }
+
+  try {
+    const token = crypto.randomBytes(9).toString("base64url");
+
+    const { rows } = await pool.query(
+      `UPDATE programas
+       SET join_token = $1, join_coordinador_id = $2, join_enabled = true
+       WHERE id = $3 AND business_id = $4
+       RETURNING id, join_token, join_enabled, join_coordinador_id;`,
+      [token, coordinador_id, id, businessId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "Programa no encontrado." });
+    }
+    return res.status(200).json({ message: "Enlace generado correctamente.", data: rows[0] });
+  } catch (err) {
+    console.error("Error en generateJoinLink:", err);
+    return res.status(500).json({ message: "Error al generar el enlace de inscripción." });
+  }
+};
+
+// --- PATCH activar/desactivar el enlace sin regenerarlo ---
+export const toggleJoinLink = async (req, res) => {
+  const businessId = req.user?.bid;
+  const { id } = req.params;
+  const { enabled } = req.body;
+
+  if (!businessId) {
+    return res.status(400).json({ message: "Token sin business asociado." });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `UPDATE programas
+       SET join_enabled = $1
+       WHERE id = $2 AND business_id = $3
+       RETURNING id, join_token, join_enabled, join_coordinador_id;`,
+      [!!enabled, id, businessId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "Programa no encontrado." });
+    }
+    return res.status(200).json({ message: "Enlace actualizado correctamente.", data: rows[0] });
+  } catch (err) {
+    console.error("Error en toggleJoinLink:", err);
+    return res.status(500).json({ message: "Error al actualizar el enlace de inscripción." });
+  }
+};
+
+// --- GET info pública del programa a partir del token del enlace ---
+export const getJoinInfo = async (req, res) => {
+  const { token } = req.params;
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, nombre, tipo_programa, descripcion, duracion_meses
+       FROM programas
+       WHERE join_token = $1 AND join_enabled = true AND activo = true;`,
+      [token]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "Enlace de inscripción inválido o inactivo." });
+    }
+    return res.status(200).json(rows[0]);
+  } catch (err) {
+    console.error("Error en getJoinInfo:", err);
+    return res.status(500).json({ message: "Error al consultar el enlace de inscripción." });
   }
 };
 

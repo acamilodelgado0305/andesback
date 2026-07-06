@@ -14,7 +14,13 @@ const handleServerError = (res, err, message) => {
 // =======================================================
 // LÓGICA DE CREACIÓN (CREATE)
 // =======================================================
-const insertStudentToDB = async (studentData, res) => {
+export const insertStudentToDB = async (studentData, res, options = {}) => {
+  const { silent = false } = options;
+  const fail = (status, error) => {
+    if (silent) { const e = new Error(error); e.status = status; throw e; }
+    return res.status(status).json({ error });
+  };
+
   const {
     nombre, apellido, email, tipoDocumento, numeroDocumento,
     lugarExpedicion, fechaNacimiento, lugarNacimiento,
@@ -27,7 +33,7 @@ const insertStudentToDB = async (studentData, res) => {
 
   // 1. Validaciones básicas de integridad
   if (!coordinador_id) {
-    return res.status(400).json({ error: "El ID del coordinador es obligatorio para crear un estudiante." });
+    return fail(400, "El ID del coordinador es obligatorio para crear un estudiante.");
   }
 
   // Sanitizar programas
@@ -37,7 +43,7 @@ const insertStudentToDB = async (studentData, res) => {
   }
 
   if (!nombre || !apellido || !email || !numeroDocumento || sanitizedProgramIds.length === 0) {
-    return res.status(400).json({ error: "Faltan campos obligatorios o no hay programas seleccionados." });
+    return fail(400, "Faltan campos obligatorios o no hay programas seleccionados.");
   }
 
   const estadoMatriculaBoolean = pagoMatricula === true || pagoMatricula === "Pagado";
@@ -91,6 +97,8 @@ const insertStudentToDB = async (studentData, res) => {
 
     await client.query("COMMIT");
 
+    if (silent) return { studentId: newStudentId };
+
     return res.status(201).json({
       message: "Estudiante registrado exitosamente",
       studentId: newStudentId
@@ -98,6 +106,8 @@ const insertStudentToDB = async (studentData, res) => {
 
   } catch (err) {
     if (client) await client.query("ROLLBACK");
+
+    if (silent) throw err;
 
     // Manejo de error de duplicados (Email o Documento)
     if (err.code === "23505") {

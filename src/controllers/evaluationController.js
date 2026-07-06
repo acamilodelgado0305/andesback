@@ -401,9 +401,12 @@ export const addPreguntaConOpciones = async (req, res) => {
 
 export const updatePregunta = async (req, res) => {
   const { preguntaId } = req.params;
-  const { enunciado, tipo_pregunta, es_obligatoria, puntaje, orden } = req.body;
+  const { enunciado, tipo_pregunta, es_obligatoria, puntaje, orden, opciones } = req.body;
 
+  const client = await pool.connect();
   try {
+    await client.query('BEGIN');
+
     const query = `
       UPDATE public.evaluacion_preguntas
       SET
@@ -415,18 +418,55 @@ export const updatePregunta = async (req, res) => {
       WHERE id = $6
       RETURNING *;
     `;
-    const { rows } = await pool.query(query, [
+    const { rows } = await client.query(query, [
       enunciado || null, tipo_pregunta || null, es_obligatoria ?? null, puntaje || null, orden || null, preguntaId,
     ]);
 
     if (rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ ok: false, message: 'Pregunta no encontrada' });
     }
 
-    return res.json({ ok: true, message: 'Pregunta actualizada correctamente', pregunta: rows[0] });
+    // Upsert de opciones cuando el frontend las envía junto con la pregunta.
+    // Las opciones con id se actualizan (texto / es_correcta / orden) y las que
+    // no tienen id se insertan. La eliminación de opciones quitadas la maneja el
+    // frontend llamando a deleteOption. Sin esto, cambiar la respuesta correcta
+    // al editar una pregunta no se persistía.
+    let opcionesActualizadas = [];
+    if (Array.isArray(opciones)) {
+      for (const [idx, op] of opciones.entries()) {
+        const ordenOpcion = op.orden ?? idx + 1;
+        if (op.id) {
+          const upd = await client.query(
+            `UPDATE public.evaluacion_opciones
+             SET texto = COALESCE($1, texto),
+                 es_correcta = $2,
+                 orden = $3
+             WHERE id = $4 AND pregunta_id = $5
+             RETURNING *;`,
+            [op.texto ?? null, !!op.es_correcta, ordenOpcion, op.id, preguntaId]
+          );
+          if (upd.rows.length > 0) opcionesActualizadas.push(upd.rows[0]);
+        } else {
+          const ins = await client.query(
+            `INSERT INTO public.evaluacion_opciones (pregunta_id, texto, es_correcta, orden)
+             VALUES ($1, $2, $3, $4)
+             RETURNING *;`,
+            [preguntaId, op.texto ?? '', !!op.es_correcta, ordenOpcion]
+          );
+          opcionesActualizadas.push(ins.rows[0]);
+        }
+      }
+    }
+
+    await client.query('COMMIT');
+    return res.json({ ok: true, message: 'Pregunta actualizada correctamente', pregunta: rows[0], opciones: opcionesActualizadas });
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Error en updatePregunta:', error);
     return res.status(500).json({ ok: false, message: 'Error al actualizar la pregunta', error: error.message });
+  } finally {
+    client.release();
   }
 };
 
@@ -722,9 +762,42 @@ export const removeAsignacion = async (req, res) => {
 export const getEvaluacionesDeEstudiante = async (req, res) => {
   const { estudianteId } = req.params;
 
+  const client = await pool.connect();
   try {
-    const query = `
-      SELECT
+    await client.query('BEGIN');
+
+    // Auto-asignar las evaluaciones activas para las que el estudiante es
+    // elegible por su(s) programa(s) (directo, por materia, o por
+    // evaluacion_programas). Antes una evaluación solo se hacía visible si el
+    // admin usaba explícitamente el botón "Asignar" — si lo olvidaba, o si el
+    // estudiante se inscribió después de esa asignación puntual, nunca la veía.
+    await client.query(
+      `INSERT INTO public.evaluacion_asignaciones (evaluacion_id, estudiante_id, estado, intentos_realizados)
+       SELECT e.id, $1, 'pendiente', 0
+       FROM public.evaluaciones e
+       LEFT JOIN public.materias mat ON mat.id = e.materia_id
+       WHERE e.activa = TRUE
+         AND EXISTS (
+           SELECT 1 FROM public.estudiante_programas ep
+           WHERE ep.estudiante_id = $1
+             AND (
+               ep.programa_id = e.programa_id
+               OR ep.programa_id = mat.programa_id
+               OR EXISTS (
+                 SELECT 1 FROM public.evaluacion_programas epr
+                 WHERE epr.evaluacion_id = e.id AND epr.programa_id = ep.programa_id
+               )
+             )
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM public.evaluacion_asignaciones ea
+           WHERE ea.evaluacion_id = e.id AND ea.estudiante_id = $1
+         )`,
+      [estudianteId]
+    );
+
+    const { rows } = await client.query(
+      `SELECT
         ea.id AS asignacion_id,
         ea.estado,
         ea.intentos_realizados,
@@ -736,31 +809,119 @@ export const getEvaluacionesDeEstudiante = async (req, res) => {
         e.fecha_inicio,
         e.fecha_fin,
         e.tiempo_limite_min,
-        e.intentos_max
+        e.intentos_max,
+        e.materia_id
       FROM public.evaluacion_asignaciones ea
       JOIN public.evaluaciones e ON e.id = ea.evaluacion_id
       WHERE ea.estudiante_id = $1
         AND e.activa = TRUE
         AND (e.fecha_inicio IS NULL OR e.fecha_inicio <= NOW())
         AND (e.fecha_fin IS NULL OR e.fecha_fin >= NOW())
-        AND (
-          NOT EXISTS (SELECT 1 FROM public.evaluacion_programas epr WHERE epr.evaluacion_id = e.id)
-          OR EXISTS (
-            SELECT 1
-            FROM public.evaluacion_programas epr
-            JOIN public.estudiante_programas ep ON ep.programa_id = epr.programa_id
-            WHERE epr.evaluacion_id = e.id
-              AND ep.estudiante_id = ea.estudiante_id
-          )
-        )
-      ORDER BY ea.estado, ea.id DESC;
-    `;
-    const { rows } = await pool.query(query, [estudianteId]);
+      ORDER BY ea.estado, ea.id DESC;`,
+      [estudianteId]
+    );
 
+    await client.query('COMMIT');
     return res.json({ ok: true, asignaciones: rows });
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error("Error en getEvaluacionesDeEstudiante:", error);
     return res.status(500).json({ ok: false, message: "Error al obtener evaluaciones del estudiante", error: error.message });
+  } finally {
+    client.release();
+  }
+};
+
+/**
+ * Examen de un tema (módulo) para el estudiante actual.
+ * Se usa al terminar las clases de un tema para mostrar su examen ahí mismo.
+ * Si el tema tiene una evaluación activa vinculada (modulo_evaluaciones) y el
+ * estudiante aún no tiene asignación, se la crea (auto-asignación puntual).
+ * Devuelve { ok, examen } donde examen = null si el tema no tiene examen.
+ */
+export const getExamenDeModuloEstudiante = async (req, res) => {
+  const estudianteId = req.student?.id || null;
+  const { moduloId } = req.params;
+
+  try {
+    // El estudiante debe tener acceso al tema (igual que para ver sus clases).
+    if (estudianteId) {
+      const { rows: acceso } = await pool.query(
+        'SELECT 1 FROM estudiante_modulos WHERE modulo_id = $1 AND estudiante_id = $2 LIMIT 1',
+        [moduloId, estudianteId]
+      );
+      if (!acceso.length) {
+        return res.status(403).json({ ok: false, message: 'Sin acceso a este tema.' });
+      }
+    }
+
+    // Evaluación activa vinculada al tema (si hay más de una, la primera).
+    const { rows: evalRows } = await pool.query(
+      `SELECT e.id, e.titulo, e.descripcion, e.intentos_max, e.tiempo_limite_min
+         FROM modulo_evaluaciones me
+         JOIN evaluaciones e ON e.id = me.evaluacion_id
+        WHERE me.modulo_id = $1 AND e.activa = TRUE
+        ORDER BY e.id ASC
+        LIMIT 1`,
+      [moduloId]
+    );
+    if (!evalRows.length) return res.json({ ok: true, examen: null });
+    const ev = evalRows[0];
+
+    // Preview de admin (sin estudiante): devolvemos el examen sin asignación.
+    if (!estudianteId) {
+      return res.json({
+        ok: true,
+        examen: {
+          evaluacion_id: ev.id,
+          titulo: ev.titulo,
+          descripcion: ev.descripcion,
+          intentos_max: ev.intentos_max,
+          tiempo_limite_min: ev.tiempo_limite_min,
+          asignacion_id: null,
+          estado: null,
+          calificacion: null,
+          intentos_realizados: 0,
+        },
+      });
+    }
+
+    // Asegura que exista la asignación del estudiante (auto-asignación puntual).
+    await pool.query(
+      `INSERT INTO public.evaluacion_asignaciones (evaluacion_id, estudiante_id, estado, intentos_realizados)
+       SELECT $1, $2, 'pendiente', 0
+        WHERE NOT EXISTS (
+          SELECT 1 FROM public.evaluacion_asignaciones
+           WHERE evaluacion_id = $1 AND estudiante_id = $2
+        )`,
+      [ev.id, estudianteId]
+    );
+
+    const { rows: asigRows } = await pool.query(
+      `SELECT id AS asignacion_id, estado, calificacion, intentos_realizados
+         FROM public.evaluacion_asignaciones
+        WHERE evaluacion_id = $1 AND estudiante_id = $2`,
+      [ev.id, estudianteId]
+    );
+    const a = asigRows[0] || {};
+
+    return res.json({
+      ok: true,
+      examen: {
+        evaluacion_id: ev.id,
+        titulo: ev.titulo,
+        descripcion: ev.descripcion,
+        intentos_max: ev.intentos_max,
+        tiempo_limite_min: ev.tiempo_limite_min,
+        asignacion_id: a.asignacion_id || null,
+        estado: a.estado || 'pendiente',
+        calificacion: a.calificacion ?? null,
+        intentos_realizados: a.intentos_realizados ?? 0,
+      },
+    });
+  } catch (error) {
+    console.error('Error en getExamenDeModuloEstudiante:', error);
+    return res.status(500).json({ ok: false, message: 'Error al obtener el examen del tema', error: error.message });
   }
 };
 
@@ -1017,6 +1178,9 @@ export const responderEvaluacion = async (req, res) => {
 
     // Si la evaluación está vinculada a un módulo y el estudiante aprueba (≥3.0) → completar módulo
     const NOTA_APROBACION = 3.0;
+    let cursoCompletado = false;
+    let materiaCompletada = null;
+
     if (notaEscala5 >= NOTA_APROBACION) {
       try {
         const modLinkResult = await client.query(
@@ -1032,6 +1196,28 @@ export const responderEvaluacion = async (req, res) => {
             [moduloId, asignacion.estudiante_id]
           );
         }
+
+        // ¿El estudiante ya aprobó el examen de TODOS los temas de esta materia
+        // (mismo número de exámenes aprobados que de temas)? → curso completado.
+        const materiaIdEval = evalMateriaResult.rows[0]?.materia_id || null;
+        if (materiaIdEval) {
+          const progresoResult = await client.query(
+            `SELECT
+               (SELECT COUNT(*) FROM public.modulos md
+                  WHERE md.materia_id = $1 AND md.activa = true) AS total_temas,
+               (SELECT COUNT(*) FROM public.modulos md
+                  JOIN public.estudiante_modulos em
+                    ON em.modulo_id = md.id AND em.estudiante_id = $2 AND em.estado = 'completado'
+                  WHERE md.materia_id = $1 AND md.activa = true) AS temas_completados`,
+            [materiaIdEval, asignacion.estudiante_id]
+          );
+          const totalTemas = Number(progresoResult.rows[0].total_temas);
+          const temasCompletados = Number(progresoResult.rows[0].temas_completados);
+          if (totalTemas > 0 && totalTemas === temasCompletados) {
+            cursoCompletado = true;
+            materiaCompletada = { id: materiaIdEval, nombre: evalMateriaResult.rows[0].materia_nombre };
+          }
+        }
       } catch (modErr) {
         console.warn('No se pudo actualizar estado de módulo:', modErr.message);
       }
@@ -1039,7 +1225,13 @@ export const responderEvaluacion = async (req, res) => {
 
     await client.query('COMMIT');
 
-    return res.json({ ok: true, message: 'Evaluación enviada y calificada correctamente', calificacion: notaEscala5 });
+    return res.json({
+      ok: true,
+      message: 'Evaluación enviada y calificada correctamente',
+      calificacion: notaEscala5,
+      cursoCompletado,
+      materiaCompletada,
+    });
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error en responderEvaluacion:', error);

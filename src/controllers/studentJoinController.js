@@ -1,0 +1,130 @@
+// src/controllers/studentJoinController.js
+// Auto-registro + inscripción de un estudiante a través del enlace de un programa
+// (estilo "unirse" de Classroom). Público, sin auth — el token del enlace es el
+// único requisito.
+import pool from '../database.js';
+import { insertStudentToDB } from './studentController.js';
+import { generateStudentToken } from './studentauthController.js';
+
+const fetchStudentWithProgramas = async (studentId) => {
+  const { rows } = await pool.query(
+    `SELECT
+       s.id, s.nombre, s.apellido,
+       CAST(s.numero_documento AS TEXT) AS documento,
+       s.coordinador_id, s.activo,
+       COALESCE(
+         json_agg(
+           json_build_object(
+             'programa_id', p.id,
+             'nombre', p.nombre,
+             'tipo_programa', p.tipo_programa,
+             'duracion_meses', p.duracion_meses,
+             'valor_matricula', p.valor_matricula,
+             'valor_mensualidad', p.valor_mensualidad
+           )
+         ) FILTER (WHERE p.id IS NOT NULL),
+         '[]'::json
+       ) AS programas_asociados
+     FROM students s
+     LEFT JOIN estudiante_programas ep ON s.id = ep.estudiante_id
+     LEFT JOIN programas p ON ep.programa_id = p.id
+     WHERE s.id = $1
+     GROUP BY s.id, s.nombre, s.apellido, s.numero_documento, s.coordinador_id, s.activo
+     LIMIT 1;`,
+    [studentId]
+  );
+  return rows[0] || null;
+};
+
+const buildStudentResponse = (student) => ({
+  id: student.id,
+  nombre: student.nombre,
+  apellido: student.apellido,
+  nombre_completo: `${student.nombre} ${student.apellido}`.trim(),
+  documento: student.documento,
+  coordinador_id: student.coordinador_id,
+  activo: student.activo,
+  programas_asociados: student.programas_asociados || [],
+});
+
+export const joinPrograma = async (req, res) => {
+  const { token } = req.params;
+  const { numero_documento, nombre, apellido, email, tipoDocumento } = req.body;
+
+  if (!numero_documento || !String(numero_documento).trim()) {
+    return res.status(400).json({ ok: false, error: 'El número de documento es requerido.' });
+  }
+  const documento = String(numero_documento).trim();
+
+  try {
+    const { rows: progRows } = await pool.query(
+      `SELECT id, nombre, business_id, join_coordinador_id
+       FROM programas
+       WHERE join_token = $1 AND join_enabled = true AND activo = true;`,
+      [token]
+    );
+    if (!progRows.length) {
+      return res.status(404).json({ ok: false, error: 'Enlace de inscripción inválido o inactivo.' });
+    }
+    const programa = progRows[0];
+
+    const { rows: existingRows } = await pool.query(
+      `SELECT id FROM students WHERE numero_documento = $1 AND business_id = $2 LIMIT 1;`,
+      [documento, programa.business_id]
+    );
+
+    let studentId;
+    let isNew = false;
+
+    if (existingRows.length) {
+      studentId = existingRows[0].id;
+      await pool.query(
+        `INSERT INTO estudiante_programas (estudiante_id, programa_id)
+         VALUES ($1, $2)
+         ON CONFLICT DO NOTHING;`,
+        [studentId, programa.id]
+      );
+    } else {
+      if (!nombre || !apellido || !email) {
+        return res.status(400).json({
+          ok: false,
+          error: 'No existe un estudiante con ese documento. Nombre, apellido y email son obligatorios para registrarte.',
+        });
+      }
+
+      try {
+        const result = await insertStudentToDB(
+          {
+            nombre, apellido, email, tipoDocumento, numeroDocumento: documento,
+            coordinador_id: programa.join_coordinador_id,
+            business_id: programa.business_id,
+            programasIds: [programa.id],
+          },
+          res,
+          { silent: true }
+        );
+        studentId = result.studentId;
+        isNew = true;
+      } catch (err) {
+        if (err.code === '23505') {
+          return res.status(409).json({ ok: false, error: 'Ya existe un estudiante con ese documento o correo electrónico.' });
+        }
+        throw err;
+      }
+    }
+
+    const student = await fetchStudentWithProgramas(studentId);
+    const token_jwt = generateStudentToken(student);
+
+    return res.json({
+      ok: true,
+      message: isNew ? 'Registro e inscripción exitosos.' : 'Inscripción exitosa.',
+      token: token_jwt,
+      isNew,
+      student: buildStudentResponse(student),
+    });
+  } catch (error) {
+    console.error('Error en joinPrograma:', error);
+    return res.status(500).json({ ok: false, error: 'Error interno al procesar la inscripción.' });
+  }
+};

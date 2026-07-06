@@ -5,7 +5,7 @@ import jwt from 'jsonwebtoken';
 const JWT_SECRET = process.env.JWT_SECRET || 'DEV_STUDENT_JWT_SECRET';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '8h';
 
-const generateStudentToken = (student) => {
+export const generateStudentToken = (student) => {
   const payload = {
     studentId: student.id,
     documento: student.documento, // viene de numero_documento AS documento

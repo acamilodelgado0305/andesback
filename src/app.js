@@ -17,6 +17,9 @@ import programasRoutes from "./routes/programasRoutes.js"
 import studentAuthRouter from "./routes/studentAuthRoutes.js"
 import cierresRouter from "./routes/cierresRouter.js"
 import modulosRouter from "./routes/modulosRouter.js"
+import clasesRouter from "./routes/clasesRouter.js"
+import claseComentariosRouter from "./routes/claseComentariosRouter.js"
+import foroRouter from "./routes/foroRouter.js"
 import dotenv from "dotenv";
 
 
@@ -72,6 +75,9 @@ app.use('/api', materiasRouter);
 app.use('/api', horariosRouter);
 app.use('/api', evaluacionesRouter);
 app.use('/api', modulosRouter);
+app.use('/api', clasesRouter);
+app.use('/api', claseComentariosRouter);
+app.use('/api', foroRouter);
 
 // Rutas protegidas (requieren autenticación con token)
 app.use('/api', cierresRouter);

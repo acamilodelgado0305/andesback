@@ -20,6 +20,7 @@ import {
   getAsignacionesDeEvaluacion,
   removeAsignacion,
   getEvaluacionesDeEstudiante,
+  getExamenDeModuloEstudiante,
   getAsignacionDetalleParaResponder,
   responderEvaluacion,
 } from '../controllers/evaluationController.js';
@@ -29,6 +30,7 @@ const router = express.Router();
 // =================== RUTAS PARA ESTUDIANTES (acepta token admin O token estudiante) ===================
 
 router.get('/evaluaciones/estudiantes/:estudianteId/asignaciones', flexAuthMiddleware, getEvaluacionesDeEstudiante);
+router.get('/modulos/:moduloId/examen/estudiante', flexAuthMiddleware, getExamenDeModuloEstudiante);
 router.get('/evaluaciones/asignaciones/:asignacionId', flexAuthMiddleware, getAsignacionDetalleParaResponder);
 router.post('/evaluaciones/asignaciones/:asignacionId/respuestas', flexAuthMiddleware, responderEvaluacion);
 

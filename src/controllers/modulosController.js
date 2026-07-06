@@ -14,7 +14,8 @@ export const getModulos = async (req, res) => {
         mat.nombre AS materia_nombre,
         (SELECT COUNT(*) FROM modulo_evaluaciones me WHERE me.modulo_id = m.id) AS total_evaluaciones,
         (SELECT COUNT(*) FROM estudiante_modulos em WHERE em.modulo_id = m.id) AS total_estudiantes,
-        (SELECT COUNT(*) FROM modulo_pdfs mp WHERE mp.modulo_id = m.id) AS total_pdfs
+        (SELECT COUNT(*) FROM modulo_pdfs mp WHERE mp.modulo_id = m.id) AS total_pdfs,
+        (SELECT COUNT(*) FROM clases c WHERE c.modulo_id = m.id) AS total_clases
        FROM modulos m
        LEFT JOIN programas p ON p.id = m.programa_id
        LEFT JOIN materias mat ON mat.id = m.materia_id
@@ -146,7 +147,7 @@ export const createModulo = async (req, res) => {
 export const updateModulo = async (req, res) => {
   const businessId = req.user?.bid;
   const { id } = req.params;
-  const { titulo, descripcion, contenido, activa, orden } = req.body;
+  const { titulo, descripcion, contenido, activa = true, orden } = req.body;
 
   try {
     const { rows } = await pool.query(
@@ -360,22 +361,58 @@ export const getModulosDeEstudiante = async (req, res) => {
   const estudianteId = req.student?.id || req.user?.id;
   if (!estudianteId) return res.status(401).json({ ok: false, error: 'No autenticado.' });
 
+  const client = await pool.connect();
   try {
-    const { rows } = await pool.query(
-      `SELECT m.id, m.titulo, m.descripcion, m.contenido, m.orden,
+    await client.query('BEGIN');
+
+    // Auto-asignar los temas de las materias/programas en los que el
+    // estudiante está inscrito. Antes esto solo ocurría una vez, al crear el
+    // tema, para los estudiantes YA inscritos en ese momento — un estudiante
+    // que se inscribe después nunca veía los temas creados previamente aunque
+    // perteneciera al programa/materia correcto.
+    await client.query(
+      `INSERT INTO estudiante_modulos (modulo_id, estudiante_id, estado, business_id)
+       SELECT m.id, $1, 'pendiente', m.business_id
+       FROM modulos m
+       LEFT JOIN materias mat ON mat.id = m.materia_id
+       WHERE m.activa = true
+         AND EXISTS (
+           SELECT 1 FROM estudiante_programas ep
+           WHERE ep.estudiante_id = $1
+             AND ep.programa_id = COALESCE(mat.programa_id, m.programa_id)
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM estudiante_modulos em
+           WHERE em.modulo_id = m.id AND em.estudiante_id = $1
+         )`,
+      [estudianteId]
+    );
+
+    const { rows } = await client.query(
+      `SELECT m.id, m.titulo, m.descripcion, m.contenido, m.orden, m.materia_id,
               em.estado, em.fecha_asignacion,
               (SELECT COUNT(*) FROM modulo_evaluaciones me WHERE me.modulo_id = m.id) AS total_evaluaciones,
-              (SELECT COUNT(*) FROM modulo_pdfs mp WHERE mp.modulo_id = m.id) AS total_pdfs
+              (SELECT COUNT(*) FROM modulo_pdfs mp WHERE mp.modulo_id = m.id) AS total_pdfs,
+              (SELECT COUNT(*) FROM clases c WHERE c.modulo_id = m.id AND c.activa = true) AS total_clases,
+              (SELECT COUNT(*) FROM clases c
+                 JOIN estudiante_clases ec
+                   ON ec.clase_id = c.id AND ec.estudiante_id = $1 AND ec.estado = 'completado'
+                WHERE c.modulo_id = m.id AND c.activa = true) AS clases_completadas
        FROM estudiante_modulos em
        JOIN modulos m ON m.id = em.modulo_id
        WHERE em.estudiante_id = $1 AND m.activa = true
        ORDER BY m.orden ASC, m.created_at DESC`,
       [estudianteId]
     );
+
+    await client.query('COMMIT');
     res.json({ ok: true, modulos: rows });
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('getModulosDeEstudiante:', err);
     res.status(500).json({ ok: false, error: 'Error al obtener módulos.' });
+  } finally {
+    client.release();
   }
 };
 
@@ -413,10 +450,30 @@ export const getModuloDetalleEstudiante = async (req, res) => {
       [id, estudianteId]
     );
 
+    const { rows: claseRows } = await pool.query(
+      `SELECT c.id, c.titulo, c.descripcion, c.video_url, c.orden,
+              COALESCE(ec.estado, 'pendiente') AS estado
+       FROM clases c
+       LEFT JOIN estudiante_clases ec ON ec.clase_id = c.id AND ec.estudiante_id = $2
+       WHERE c.modulo_id=$1 AND c.activa=true
+       ORDER BY c.orden ASC, c.created_at ASC`,
+      [id, estudianteId]
+    );
+    const clasesConPdfs = await Promise.all(
+      claseRows.map(async (clase) => {
+        const { rows: pdfs } = await pool.query(
+          'SELECT id, nombre, pdf_url, orden FROM modulo_pdfs WHERE clase_id=$1 ORDER BY orden ASC, created_at ASC',
+          [clase.id]
+        );
+        return { ...clase, pdfs };
+      })
+    );
+
     res.json({
       ok: true,
       modulo: modRows[0],
       pdfs: pdfRows,
+      clases: clasesConPdfs,
       evaluaciones: evalRows,
       estado: acceso[0].estado,
     });
