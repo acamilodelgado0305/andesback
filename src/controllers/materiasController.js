@@ -215,6 +215,35 @@ export const getMateriaProgresoEstudiante = async (req, res) => {
     const totalTemas = Number(progRows[0].total_temas);
     const temasCompletados = Number(progRows[0].temas_completados);
 
+    // Progreso a nivel CLASE: todas las clases de los temas accesibles, en orden
+    // continuo, con su estado. Sirve para el botón "Iniciar / Continuar · Clase N".
+    const { rows: claseRows } = await pool.query(
+      `SELECT c.id AS clase_id, c.titulo, m.id AS modulo_id,
+              COALESCE(ec.estado, 'pendiente') AS estado
+       FROM modulos m
+       JOIN clases c ON c.modulo_id = m.id AND c.activa = true
+       LEFT JOIN estudiante_clases ec ON ec.clase_id = c.id AND ec.estudiante_id = $2
+       WHERE m.materia_id = $1 AND m.activa = true
+         AND EXISTS (
+           SELECT 1 FROM estudiante_modulos em
+           WHERE em.modulo_id = m.id AND em.estudiante_id = $2
+         )
+       ORDER BY m.orden ASC, m.created_at ASC, c.orden ASC, c.created_at ASC`,
+      [id, estudianteId]
+    );
+
+    const totalClases = claseRows.length;
+    let clasesCompletadas = 0;
+    let siguienteClase = null; // primera clase pendiente (donde continuar)
+    claseRows.forEach((row, idx) => {
+      if (row.estado === 'completado') {
+        clasesCompletadas += 1;
+      } else if (!siguienteClase) {
+        siguienteClase = { id: row.clase_id, numero: idx + 1, titulo: row.titulo, moduloId: row.modulo_id };
+      }
+    });
+    const primeraClaseId = claseRows[0]?.clase_id || null;
+
     res.json({
       ok: true,
       materia: {
@@ -225,6 +254,13 @@ export const getMateriaProgresoEstudiante = async (req, res) => {
       totalTemas,
       temasCompletados,
       completado: totalTemas > 0 && totalTemas === temasCompletados,
+      // Nivel clase (para el botón de iniciar/continuar en el dashboard):
+      totalClases,
+      clasesCompletadas,
+      iniciada: clasesCompletadas > 0,
+      clasesTodasCompletadas: totalClases > 0 && clasesCompletadas === totalClases,
+      siguienteClase, // null si ya completó todas las clases
+      primeraClaseId,
     });
   } catch (err) {
     console.error('getMateriaProgresoEstudiante:', err);

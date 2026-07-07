@@ -18,6 +18,8 @@ import {
   setJoinLinkEnabled,
   regenerateJoinLink,
   deleteJoinLink,
+  getProgramaProgreso,
+  getEstudianteProgresoPrograma,
 } from "../controllers/programasController.js";
 import { authMiddleware, optionalAuthMiddleware } from "../middlewares/authMiddleware.js";
 
@@ -26,6 +28,10 @@ const router = express.Router();
 // GET: optionalAuth — si hay token filtra por business, si no devuelve todos (formularios públicos)
 router.get("/programas",              optionalAuthMiddleware, getProgramas);
 router.get("/programas/:id/detalle",  authMiddleware, getProgramaDetalle);   // detalle completo admin
+
+// Avance por estudiante (clases vistas / pendientes)
+router.get("/programas/:id/progreso",                          authMiddleware, getProgramaProgreso);
+router.get("/programas/:id/estudiantes/:estudianteId/progreso", authMiddleware, getEstudianteProgresoPrograma);
 
 // Docentes asociados a un programa (muchos a muchos)
 router.get("/programas/:id/docentes",               authMiddleware, getProgramaDocentes);

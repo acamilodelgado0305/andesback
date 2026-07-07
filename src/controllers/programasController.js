@@ -627,3 +627,149 @@ export const deletePrograma = async (req, res) => {
     return res.status(500).json({ message: "Error al desactivar el programa." });
   }
 };
+
+// ================================================================
+// AVANCE POR ESTUDIANTE (clases vistas / pendientes)
+// ================================================================
+
+// Subconsulta reutilizable: ids de las clases activas de un programa (vía sus
+// temas/módulos, ligados por materia o directamente al programa).
+const PROG_CLASES_CTE = `
+  SELECT c.id
+  FROM clases c
+  JOIN modulos m ON m.id = c.modulo_id
+  LEFT JOIN materias mat ON mat.id = m.materia_id
+  WHERE (m.programa_id = $1 OR mat.programa_id = $1)
+    AND c.activa = true AND m.activa = true
+`;
+
+// --- GET resumen de avance: por cada estudiante del programa, cuántas clases
+//     completó de cuántas (para pintar la barra de progreso en la tabla). ---
+export const getProgramaProgreso = async (req, res) => {
+  const businessId = req.user?.bid;
+  const { id } = req.params;
+
+  if (!businessId) {
+    return res.status(400).json({ message: "Token sin business asociado." });
+  }
+
+  try {
+    const prog = await pool.query(
+      `SELECT id FROM programas WHERE id = $1 AND business_id = $2;`,
+      [id, businessId]
+    );
+    if (prog.rows.length === 0) {
+      return res.status(404).json({ message: "Programa no encontrado." });
+    }
+
+    const totalRes = await pool.query(`SELECT COUNT(*)::int AS total FROM (${PROG_CLASES_CTE}) pc;`, [id]);
+    const totalClases = totalRes.rows[0].total;
+
+    const { rows } = await pool.query(
+      `WITH prog_clases AS (${PROG_CLASES_CTE})
+       SELECT s.id AS estudiante_id, s.nombre, s.apellido,
+              CAST(s.numero_documento AS TEXT) AS documento,
+              COUNT(ec.clase_id) FILTER (WHERE ec.estado = 'completado')::int AS completadas,
+              MAX(ec.fecha_completado) AS ultima_actividad
+       FROM estudiante_programas ep
+       JOIN students s ON s.id = ep.estudiante_id
+       LEFT JOIN estudiante_clases ec
+         ON ec.estudiante_id = s.id AND ec.clase_id IN (SELECT id FROM prog_clases)
+       WHERE ep.programa_id = $1
+       GROUP BY s.id, s.nombre, s.apellido, s.numero_documento
+       ORDER BY s.nombre, s.apellido;`,
+      [id]
+    );
+
+    return res.status(200).json({ total_clases: totalClases, estudiantes: rows });
+  } catch (err) {
+    console.error("Error en getProgramaProgreso:", err);
+    return res.status(500).json({ message: "Error al obtener el avance del programa." });
+  }
+};
+
+// --- GET detalle de avance de UN estudiante: materias → temas → clases con su
+//     estado (completado/pendiente) y fecha. ---
+export const getEstudianteProgresoPrograma = async (req, res) => {
+  const businessId = req.user?.bid;
+  const { id, estudianteId } = req.params;
+
+  if (!businessId) {
+    return res.status(400).json({ message: "Token sin business asociado." });
+  }
+
+  try {
+    const prog = await pool.query(
+      `SELECT id FROM programas WHERE id = $1 AND business_id = $2;`,
+      [id, businessId]
+    );
+    if (prog.rows.length === 0) {
+      return res.status(404).json({ message: "Programa no encontrado." });
+    }
+
+    const estRes = await pool.query(
+      `SELECT id, nombre, apellido, CAST(numero_documento AS TEXT) AS documento
+       FROM students WHERE id = $1;`,
+      [estudianteId]
+    );
+    if (estRes.rows.length === 0) {
+      return res.status(404).json({ message: "Estudiante no encontrado." });
+    }
+
+    // Todas las clases del programa con el estado del estudiante (o 'pendiente').
+    const { rows } = await pool.query(
+      `SELECT mat.id AS materia_id, mat.nombre AS materia_nombre,
+              m.id AS modulo_id, m.titulo AS modulo_titulo, m.orden AS modulo_orden,
+              c.id AS clase_id, c.titulo AS clase_titulo, c.orden AS clase_orden,
+              COALESCE(ec.estado, 'pendiente') AS estado, ec.fecha_completado
+       FROM clases c
+       JOIN modulos m ON m.id = c.modulo_id
+       LEFT JOIN materias mat ON mat.id = m.materia_id
+       LEFT JOIN estudiante_clases ec ON ec.clase_id = c.id AND ec.estudiante_id = $2
+       WHERE (m.programa_id = $1 OR mat.programa_id = $1)
+         AND c.activa = true AND m.activa = true
+       ORDER BY mat.nombre NULLS FIRST, m.orden ASC, m.created_at ASC, c.orden ASC, c.created_at ASC;`,
+      [id, estudianteId]
+    );
+
+    // Agrupar plano → materias[] → temas[] → clases[].
+    const materiasMap = new Map();
+    let totalClases = 0;
+    let completadas = 0;
+    for (const r of rows) {
+      totalClases += 1;
+      if (r.estado === 'completado') completadas += 1;
+
+      const matKey = r.materia_id ?? 'sin_materia';
+      if (!materiasMap.has(matKey)) {
+        materiasMap.set(matKey, {
+          id: r.materia_id, nombre: r.materia_nombre || 'Sin materia', temas: new Map(),
+        });
+      }
+      const materia = materiasMap.get(matKey);
+      if (!materia.temas.has(r.modulo_id)) {
+        materia.temas.set(r.modulo_id, {
+          id: r.modulo_id, titulo: r.modulo_titulo, orden: r.modulo_orden, clases: [],
+        });
+      }
+      materia.temas.get(r.modulo_id).clases.push({
+        id: r.clase_id, titulo: r.clase_titulo, orden: r.clase_orden,
+        estado: r.estado, fecha_completado: r.fecha_completado,
+      });
+    }
+
+    const materias = [...materiasMap.values()].map((mat) => ({
+      id: mat.id, nombre: mat.nombre, temas: [...mat.temas.values()],
+    }));
+
+    return res.status(200).json({
+      estudiante: estRes.rows[0],
+      total_clases: totalClases,
+      completadas,
+      materias,
+    });
+  } catch (err) {
+    console.error("Error en getEstudianteProgresoPrograma:", err);
+    return res.status(500).json({ message: "Error al obtener el detalle de avance del estudiante." });
+  }
+};
