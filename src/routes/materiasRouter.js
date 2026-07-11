@@ -10,7 +10,8 @@ import {
   getMateriaProgresoEstudiante,
   updateMateria,
   deleteMateria,
-  uploadMateriaBanner
+  uploadMateriaBanner,
+  duplicarMateria
 } from '../controllers/materiasController.js';
 
 // Multer en memoria — solo imágenes, máx 8 MB
@@ -36,6 +37,7 @@ router.get('/materias', authMiddleware, getAllMaterias);
 router.get('/materias/:id/detalle', flexAuthMiddleware, getMateriaDetalle);
 router.get('/materias/:id', authMiddleware, getMateriaById);
 router.post('/materias', authMiddleware, createMateria);
+router.post('/materias/:id/duplicar', authMiddleware, duplicarMateria);
 router.put('/materias/:id', authMiddleware, updateMateria);
 router.put('/materias/:id/banner', authMiddleware, uploadBanner.single('banner'), uploadMateriaBanner);
 router.delete('/materias/:id', authMiddleware, deleteMateria);

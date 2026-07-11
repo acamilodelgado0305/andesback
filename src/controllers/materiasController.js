@@ -1,5 +1,8 @@
 import pool from "../database.js";
 import { uploadMateriaBannerToGCS, deleteMateriaBannerFromGCS } from "../services/gcsMateriaBanner.js";
+import {
+  copyMateriaBanner, copyModuloPdf, copyClaseVideo, copyClasePdf, copyClasePresentacion,
+} from "../services/gcsCopy.js";
 
 // --- CREATE ---
 export const createMateria = async (req, res) => {
@@ -383,5 +386,262 @@ export const uploadMateriaBanner = async (req, res) => {
   } catch (error) {
     console.error(`Error al subir el banner de la materia ${id}:`, error);
     return res.status(500).json({ message: 'Error interno del servidor.' });
+  }
+};
+
+// --- DUPLICAR (copia profunda en otro programa) ---
+// Clona la materia y TODA su estructura en el programa destino: temas (modulos),
+// clases (con video), PDFs, presentaciones y evaluaciones (con preguntas/opciones)
+// + los links tema→evaluación. Los archivos de GCS se copian físicamente (copia
+// server-side) para que la materia duplicada sea 100% independiente de la original.
+// NO se copian estudiantes, progreso, asignaciones ni foro: los estudiantes del
+// programa destino reciben el contenido por la auto-asignación perezosa existente
+// (getModulosDeEstudiante / getEvaluacionesDeEstudiante).
+export const duplicarMateria = async (req, res) => {
+  const { id } = req.params;
+  const businessId = req.user?.bid;
+  const { programa_id_destino, nombre } = req.body;
+
+  if (!businessId) {
+    return res.status(403).json({ message: 'No se pudo determinar el negocio del usuario.' });
+  }
+  if (!programa_id_destino) {
+    return res.status(400).json({ message: 'El campo "programa_id_destino" es obligatorio.' });
+  }
+
+  const client = await pool.connect();
+  try {
+    // Materia origen (scopeada por negocio)
+    const { rows: matRows } = await client.query(
+      'SELECT * FROM "public"."materias" WHERE id = $1 AND business_id = $2',
+      [id, businessId]
+    );
+    if (!matRows.length) {
+      return res.status(404).json({ message: `Materia con ID ${id} no encontrada.` });
+    }
+    const origen = matRows[0];
+
+    // Programa destino (debe pertenecer al mismo negocio)
+    const { rows: progRows } = await client.query(
+      'SELECT id FROM "public"."programas" WHERE id = $1 AND business_id = $2',
+      [programa_id_destino, businessId]
+    );
+    if (!progRows.length) {
+      return res.status(400).json({ message: 'El programa destino no existe o no pertenece a tu negocio.' });
+    }
+
+    // Copia un archivo de GCS si tiene gcs_path; si es un enlace externo (solo url)
+    // lo referencia tal cual. Si la copia falla, cae a referenciar la url original
+    // (best-effort: la duplicación no se aborta por un archivo).
+    const dupFile = async ({ gcsPath, url }, copyFn, ...args) => {
+      if (gcsPath) {
+        try {
+          const copied = await copyFn(gcsPath, ...args);
+          if (copied) return copied;
+        } catch (e) {
+          console.warn('[duplicarMateria] Falló copia GCS, se comparte el original:', e.message);
+        }
+        return { publicUrl: url || null, gcsPath: null };
+      }
+      // Sin gcs_path → enlace externo (YouTube/Loom/...) o vacío: se comparte la url.
+      return { publicUrl: url || null, gcsPath: null };
+    };
+
+    await client.query('BEGIN');
+
+    // 1. Nueva materia
+    const { rows: nuevaMatRows } = await client.query(
+      `INSERT INTO "public"."materias" (nombre, programa_id, docente_id, business_id, activa)
+       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [nombre?.trim() || origen.nombre, programa_id_destino, origen.docente_id, businessId, origen.activa]
+    );
+    const nuevaMateria = nuevaMatRows[0];
+
+    // 2. Banner (best-effort)
+    if (origen.banner_gcs_path) {
+      const b = await dupFile(
+        { gcsPath: origen.banner_gcs_path, url: origen.banner_url },
+        copyMateriaBanner, nuevaMateria.id, origen.banner_url
+      );
+      await client.query(
+        'UPDATE "public"."materias" SET banner_url = $1, banner_gcs_path = $2 WHERE id = $3',
+        [b.publicUrl, b.gcsPath, nuevaMateria.id]
+      );
+      nuevaMateria.banner_url = b.publicUrl;
+      nuevaMateria.banner_gcs_path = b.gcsPath;
+    }
+
+    // 3. Evaluaciones de la materia (por materia_id o vinculadas a sus temas)
+    const { rows: evalRows } = await client.query(
+      `SELECT DISTINCT e.*
+         FROM "public"."evaluaciones" e
+        WHERE e.business_id = $2 AND (
+          e.materia_id = $1
+          OR e.id IN (
+            SELECT me.evaluacion_id FROM "public"."modulo_evaluaciones" me
+            JOIN "public"."modulos" m ON m.id = me.modulo_id
+            WHERE m.materia_id = $1
+          )
+        )`,
+      [id, businessId]
+    );
+
+    const evalMap = new Map(); // srcEvalId → newEvalId
+    for (const ev of evalRows) {
+      const { rows: nuevaEvalRows } = await client.query(
+        `INSERT INTO "public"."evaluaciones"
+           (titulo, descripcion, tipo_destino, programa_id, materia_id, fecha_inicio, fecha_fin,
+            intentos_max, tiempo_limite_min, activa, business_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+        [ev.titulo, ev.descripcion, ev.tipo_destino, programa_id_destino, nuevaMateria.id,
+         ev.fecha_inicio, ev.fecha_fin, ev.intentos_max, ev.tiempo_limite_min, ev.activa, businessId]
+      );
+      const newEvalId = nuevaEvalRows[0].id;
+      evalMap.set(ev.id, newEvalId);
+
+      await client.query(
+        `INSERT INTO "public"."evaluacion_programas" (evaluacion_id, programa_id)
+         VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+        [newEvalId, programa_id_destino]
+      );
+
+      // Preguntas + opciones
+      const { rows: preguntas } = await client.query(
+        'SELECT * FROM "public"."evaluacion_preguntas" WHERE evaluacion_id = $1 ORDER BY orden ASC, id ASC',
+        [ev.id]
+      );
+      for (const p of preguntas) {
+        const { rows: nuevaPregRows } = await client.query(
+          `INSERT INTO "public"."evaluacion_preguntas"
+             (evaluacion_id, enunciado, tipo_pregunta, es_obligatoria, puntaje, orden)
+           VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+          [newEvalId, p.enunciado, p.tipo_pregunta, p.es_obligatoria, p.puntaje, p.orden]
+        );
+        const newPregId = nuevaPregRows[0].id;
+        const { rows: opciones } = await client.query(
+          'SELECT * FROM "public"."evaluacion_opciones" WHERE pregunta_id = $1 ORDER BY orden ASC, id ASC',
+          [p.id]
+        );
+        for (const o of opciones) {
+          await client.query(
+            `INSERT INTO "public"."evaluacion_opciones" (pregunta_id, texto, es_correcta, orden)
+             VALUES ($1,$2,$3,$4)`,
+            [newPregId, o.texto, o.es_correcta, o.orden]
+          );
+        }
+      }
+    }
+
+    // 4. Temas (modulos) + clases + pdfs + presentaciones + links de evaluación
+    const { rows: modulos } = await client.query(
+      'SELECT * FROM "public"."modulos" WHERE materia_id = $1 AND business_id = $2 ORDER BY orden ASC, created_at ASC',
+      [id, businessId]
+    );
+
+    for (const m of modulos) {
+      const { rows: nuevoModRows } = await client.query(
+        `INSERT INTO "public"."modulos"
+           (titulo, descripcion, contenido, activa, orden, programa_id, materia_id, business_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+        [m.titulo, m.descripcion, m.contenido, m.activa, m.orden, programa_id_destino, nuevaMateria.id, businessId]
+      );
+      const newModuloId = nuevoModRows[0].id;
+
+      // 4a. Clases del tema (cada una con su video, PDFs y presentaciones)
+      const { rows: clases } = await client.query(
+        'SELECT * FROM "public"."clases" WHERE modulo_id = $1 ORDER BY orden ASC, created_at ASC',
+        [m.id]
+      );
+      for (const c of clases) {
+        const { rows: nuevaClaseRows } = await client.query(
+          `INSERT INTO "public"."clases" (modulo_id, business_id, titulo, descripcion, orden, activa)
+           VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+          [newModuloId, businessId, c.titulo, c.descripcion, c.orden, c.activa]
+        );
+        const newClaseId = nuevaClaseRows[0].id;
+
+        // Video (GCS → copia física; enlace externo → se comparte)
+        if (c.video_url || c.video_gcs_path) {
+          const vid = await dupFile(
+            { gcsPath: c.video_gcs_path, url: c.video_url },
+            copyClaseVideo, newClaseId, c.video_url
+          );
+          await client.query(
+            'UPDATE "public"."clases" SET video_url = $1, video_gcs_path = $2 WHERE id = $3',
+            [vid.publicUrl, vid.gcsPath, newClaseId]
+          );
+        }
+
+        // PDFs de la clase
+        const { rows: clasePdfs } = await client.query(
+          'SELECT * FROM "public"."modulo_pdfs" WHERE clase_id = $1 ORDER BY orden ASC, created_at ASC',
+          [c.id]
+        );
+        for (const pdf of clasePdfs) {
+          const copied = await dupFile({ gcsPath: pdf.gcs_path, url: pdf.pdf_url }, copyClasePdf, newClaseId, pdf.nombre);
+          await client.query(
+            `INSERT INTO "public"."modulo_pdfs" (modulo_id, clase_id, nombre, pdf_url, gcs_path, orden, business_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+            [newModuloId, newClaseId, pdf.nombre, copied.publicUrl, copied.gcsPath, pdf.orden, businessId]
+          );
+        }
+
+        // Presentaciones de la clase (tolerar que la tabla aún no exista → migración pendiente)
+        try {
+          const { rows: pres } = await client.query(
+            'SELECT * FROM "public"."clase_presentaciones" WHERE clase_id = $1 ORDER BY orden ASC, created_at ASC',
+            [c.id]
+          );
+          for (const pr of pres) {
+            const copied = await dupFile({ gcsPath: pr.gcs_path, url: pr.url }, copyClasePresentacion, newClaseId, pr.nombre);
+            await client.query(
+              `INSERT INTO "public"."clase_presentaciones" (clase_id, modulo_id, business_id, nombre, tipo, url, gcs_path, orden)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+              [newClaseId, newModuloId, businessId, pr.nombre, pr.tipo, copied.publicUrl, copied.gcsPath, pr.orden]
+            );
+          }
+        } catch (e) {
+          if (e.code !== '42P01') throw e;
+        }
+      }
+
+      // 4b. PDFs a nivel tema (clase_id IS NULL, "legacy")
+      const { rows: temaPdfs } = await client.query(
+        'SELECT * FROM "public"."modulo_pdfs" WHERE modulo_id = $1 AND clase_id IS NULL ORDER BY orden ASC, created_at ASC',
+        [m.id]
+      );
+      for (const pdf of temaPdfs) {
+        const copied = await dupFile({ gcsPath: pdf.gcs_path, url: pdf.pdf_url }, copyModuloPdf, newModuloId, pdf.nombre);
+        await client.query(
+          `INSERT INTO "public"."modulo_pdfs" (modulo_id, clase_id, nombre, pdf_url, gcs_path, orden, business_id)
+           VALUES ($1, NULL, $2, $3, $4, $5, $6)`,
+          [newModuloId, pdf.nombre, copied.publicUrl, copied.gcsPath, pdf.orden, businessId]
+        );
+      }
+
+      // 4c. Links tema → evaluación (mapeando al nuevo id de evaluación)
+      const { rows: modEvals } = await client.query(
+        'SELECT * FROM "public"."modulo_evaluaciones" WHERE modulo_id = $1',
+        [m.id]
+      );
+      for (const me of modEvals) {
+        const newEvalId = evalMap.get(me.evaluacion_id);
+        if (!newEvalId) continue;
+        await client.query(
+          `INSERT INTO "public"."modulo_evaluaciones" (modulo_id, evaluacion_id, es_requerida)
+           VALUES ($1,$2,$3) ON CONFLICT (modulo_id, evaluacion_id) DO NOTHING`,
+          [newModuloId, newEvalId, me.es_requerida]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+    return res.status(201).json({ ok: true, materia: nuevaMateria });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error al duplicar materia:', error);
+    return res.status(500).json({ message: 'Error interno al duplicar la materia.' });
+  } finally {
+    client.release();
   }
 };
