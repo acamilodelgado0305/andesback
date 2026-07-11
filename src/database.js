@@ -147,6 +147,24 @@ const runMigrations = async () => {
       WHERE join_token IS NOT NULL AND join_coordinador_id IS NOT NULL
       ON CONFLICT (token) DO NOTHING;
     `);
+    // Certificados (PDF) que el admin sube a un estudiante y este ve en su portal
+    // (secciones Certificados y Paz y Salvo). 1 fila por archivo, se guarda en GCS.
+    // Ver migration_student_certificados.sql.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS public.student_certificados (
+        id           SERIAL PRIMARY KEY,
+        student_id   INTEGER NOT NULL REFERENCES public.students(id) ON DELETE CASCADE,
+        business_id  INTEGER,
+        nombre       VARCHAR(255),
+        url          TEXT,
+        gcs_path     TEXT,
+        created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_student_certificados_student
+        ON public.student_certificados(student_id);
+    `);
     console.log("Migraciones ejecutadas correctamente.");
   } catch (err) {
     console.error("Error ejecutando migraciones:", err);

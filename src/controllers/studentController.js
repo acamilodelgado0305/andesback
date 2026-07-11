@@ -1211,6 +1211,132 @@ export const deleteStudentDocumentController = async (req, res) => {
   }
 };
 
+// =======================================================
+// CERTIFICADOS DEL ESTUDIANTE (varios PDFs por estudiante)
+// El admin sube certificados en PDF; el estudiante los ve en su portal
+// (secciones "Certificados" y "Paz y Salvo"). Se guardan en GCS
+// (mismo bucket de documentos) y se listan desde la tabla student_certificados.
+// =======================================================
+
+// ADMIN: Subir un certificado (PDF) al estudiante
+export const uploadStudentCertificadoController = async (req, res) => {
+  const { id } = req.params;
+  const businessId = req.user?.bid || null;
+
+  if (!id || isNaN(id)) {
+    return res.status(400).json({ error: "ID de estudiante inválido o no proporcionado." });
+  }
+  if (!req.file) {
+    return res.status(400).json({ error: "No se envió ningún archivo PDF." });
+  }
+
+  try {
+    const { buffer, originalname, mimetype } = req.file;
+
+    const { publicUrl, gcsPath } = await uploadStudentDocumentToGCS(buffer, {
+      filename: originalname,
+      mimetype,
+      studentId: id,
+    });
+
+    const insertQuery = `
+      INSERT INTO student_certificados (student_id, business_id, nombre, url, gcs_path)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING id, student_id, nombre, url, created_at;
+    `;
+    const result = await pool.query(insertQuery, [
+      id,
+      businessId,
+      originalname,
+      publicUrl,
+      gcsPath,
+    ]);
+
+    return res.status(201).json({
+      message: "Certificado subido correctamente.",
+      certificado: result.rows[0],
+    });
+  } catch (err) {
+    handleServerError(res, err, "Error interno del servidor al subir el certificado.");
+  }
+};
+
+// ADMIN: Listar los certificados de un estudiante (por id)
+export const getStudentCertificadosController = async (req, res) => {
+  const { id } = req.params;
+
+  if (!id || isNaN(id)) {
+    return res.status(400).json({ error: "ID de estudiante inválido o no proporcionado." });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT id, nombre, url, created_at
+       FROM student_certificados
+       WHERE student_id = $1
+       ORDER BY created_at DESC`,
+      [id]
+    );
+    return res.status(200).json(result.rows);
+  } catch (err) {
+    handleServerError(res, err, "Error interno del servidor al obtener los certificados.");
+  }
+};
+
+// ADMIN: Eliminar un certificado del estudiante
+export const deleteStudentCertificadoController = async (req, res) => {
+  const { studentId, certificadoId } = req.params;
+
+  if (!studentId || isNaN(studentId) || !certificadoId || isNaN(certificadoId)) {
+    return res.status(400).json({ error: "Parámetros inválidos." });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      "SELECT gcs_path FROM student_certificados WHERE id = $1 AND student_id = $2",
+      [certificadoId, studentId]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Certificado no encontrado." });
+    }
+
+    // Intentar borrar de GCS; si falla, igual limpiamos la BD.
+    if (rows[0].gcs_path) {
+      await deleteStudentDocumentFromGCS(rows[0].gcs_path).catch((e) =>
+        console.warn("[GCS] No se pudo eliminar el certificado:", e.message)
+      );
+    }
+
+    await pool.query("DELETE FROM student_certificados WHERE id = $1", [certificadoId]);
+
+    return res.status(200).json({ message: "Certificado eliminado correctamente." });
+  } catch (err) {
+    handleServerError(res, err, "Error interno del servidor al eliminar el certificado.");
+  }
+};
+
+// PÚBLICO (portal del estudiante): certificados por número de documento
+export const getStudentCertificadosByDocumentController = async (req, res) => {
+  const { numero_documento } = req.params;
+
+  if (!numero_documento) {
+    return res.status(400).json({ error: "Número de documento no proporcionado." });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT c.id, c.nombre, c.url, c.created_at
+       FROM student_certificados c
+       JOIN students s ON s.id = c.student_id
+       WHERE s.numero_documento = $1
+       ORDER BY c.created_at DESC`,
+      [numero_documento]
+    );
+    return res.status(200).json(result.rows);
+  } catch (err) {
+    handleServerError(res, err, "Error interno del servidor al obtener los certificados.");
+  }
+};
 
 
 

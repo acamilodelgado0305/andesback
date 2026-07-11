@@ -19,6 +19,10 @@ import {
   uploadStudentDocumentController,
   getStudentDocumentsController,
   deleteStudentDocumentController,
+  uploadStudentCertificadoController,
+  getStudentCertificadosController,
+  deleteStudentCertificadoController,
+  getStudentCertificadosByDocumentController,
   bulkMoveToPrograma,
   getStudentCommentsController,
   createStudentCommentController,
@@ -65,6 +69,9 @@ router.get('/students/program/:programaId', getStudentsByProgramaIdController);
 // GET /api/students/program/1 (asumiendo que 1 es el ID de un programa)
 
 router.get('/students/document/:numero_documento', getStudentByDocumentController);
+
+// PÚBLICO (portal): certificados del estudiante por número de documento
+router.get('/students/document/:numero_documento/certificados', getStudentCertificadosByDocumentController);
 
 // GET: Obtener estudiantes por coordinador (DEBE ir antes de /students/:id)
 router.get('/students/coordinator/:coordinatorId', getStudentsByCoordinatorIdController);
@@ -119,6 +126,22 @@ router.post(
 router.get("/students/:id/documents", getStudentDocumentsController);
 // routes/studentRoutes.js
 router.delete("/students/:studentId/documents/:documentId", deleteStudentDocumentController);
+
+// =======================================================
+// CERTIFICADOS DEL ESTUDIANTE (varios PDFs por estudiante) — admin
+// =======================================================
+router.post(
+  "/students/:id/certificados",
+  authMiddleware,
+  uploadStudentDocument.single("certificado"),
+  uploadStudentCertificadoController
+);
+router.get("/students/:id/certificados", authMiddleware, getStudentCertificadosController);
+router.delete(
+  "/students/:studentId/certificados/:certificadoId",
+  authMiddleware,
+  deleteStudentCertificadoController
+);
 
 // =======================================================
 // COMENTARIOS DEL ESTUDIANTE
