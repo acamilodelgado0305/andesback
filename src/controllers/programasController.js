@@ -81,7 +81,16 @@ export const getProgramas = async (req, res) => {
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
     const { rows } = await pool.query(
-      `SELECT * FROM programas ${whereClause} ORDER BY nombre ASC;`,
+      `SELECT p.*,
+              (SELECT COUNT(*)
+                 FROM estudiante_programas ep
+                 JOIN students s ON s.id = ep.estudiante_id
+                WHERE ep.programa_id = p.id
+                  AND (s.archived = FALSE OR s.archived IS NULL)
+              )::int AS total_estudiantes
+         FROM programas p
+         ${whereClause}
+         ORDER BY p.nombre ASC;`,
       valores
     );
     return res.status(200).json(rows);
@@ -192,7 +201,8 @@ export const getProgramaDetalle = async (req, res) => {
     );
     if (!progRows.length) return res.status(404).json({ message: 'Programa no encontrado.' });
 
-    // Estudiantes inscritos
+    // Estudiantes inscritos (excluye archivados: al archivar un estudiante debe
+    // desaparecer de la lista del programa, igual que de la lista de activos)
     const { rows: estudiantes } = await pool.query(
       `SELECT s.id, s.nombre, s.apellido, s.email,
               s.telefono_whatsapp, s.telefono_llamadas,
@@ -200,6 +210,7 @@ export const getProgramaDetalle = async (req, res) => {
        FROM estudiante_programas ep
        JOIN students s ON s.id = ep.estudiante_id
        WHERE ep.programa_id = $1
+         AND (s.archived = FALSE OR s.archived IS NULL)
        ORDER BY s.nombre ASC`,
       [id]
     );
@@ -336,6 +347,47 @@ export const removeProgramaDocente = async (req, res) => {
   } catch (err) {
     console.error("Error en removeProgramaDocente:", err);
     return res.status(500).json({ message: "Error al quitar el docente del programa." });
+  }
+};
+
+// ================================================================
+// ESTUDIANTES DEL PROGRAMA
+// ================================================================
+
+// --- DELETE sacar un estudiante de un programa ---
+// Solo elimina la fila de estudiante_programas (lo desvincula del programa).
+// NO archiva ni borra al estudiante; sigue existiendo y puede seguir en otros programas.
+export const removeEstudianteFromPrograma = async (req, res) => {
+  const businessId = req.user?.bid;
+  const { id, estudianteId } = req.params;
+
+  if (!businessId) {
+    return res.status(400).json({ message: "Token sin business asociado." });
+  }
+
+  try {
+    // El programa debe pertenecer al negocio del token (estudiante_programas no
+    // tiene business_id, así que validamos la propiedad a través de programas).
+    const { rows: prog } = await pool.query(
+      "SELECT id FROM programas WHERE id = $1 AND business_id = $2",
+      [id, businessId]
+    );
+    if (!prog.length) {
+      return res.status(404).json({ message: "Programa no encontrado." });
+    }
+
+    const { rowCount } = await pool.query(
+      `DELETE FROM estudiante_programas
+       WHERE programa_id = $1 AND estudiante_id = $2;`,
+      [id, estudianteId]
+    );
+    if (rowCount === 0) {
+      return res.status(404).json({ message: "El estudiante no está inscrito en este programa." });
+    }
+    return res.sendStatus(204);
+  } catch (err) {
+    console.error("Error en removeEstudianteFromPrograma:", err);
+    return res.status(500).json({ message: "Error al sacar el estudiante del programa." });
   }
 };
 

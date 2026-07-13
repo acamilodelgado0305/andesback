@@ -20,6 +20,7 @@ import {
   deleteJoinLink,
   getProgramaProgreso,
   getEstudianteProgresoPrograma,
+  removeEstudianteFromPrograma,
 } from "../controllers/programasController.js";
 import { authMiddleware, optionalAuthMiddleware } from "../middlewares/authMiddleware.js";
 
@@ -32,6 +33,9 @@ router.get("/programas/:id/detalle",  authMiddleware, getProgramaDetalle);   // 
 // Avance por estudiante (clases vistas / pendientes)
 router.get("/programas/:id/progreso",                          authMiddleware, getProgramaProgreso);
 router.get("/programas/:id/estudiantes/:estudianteId/progreso", authMiddleware, getEstudianteProgresoPrograma);
+
+// Sacar un estudiante del programa (lo desvincula; no lo archiva ni lo borra)
+router.delete("/programas/:id/estudiantes/:estudianteId", authMiddleware, removeEstudianteFromPrograma);
 
 // Docentes asociados a un programa (muchos a muchos)
 router.get("/programas/:id/docentes",               authMiddleware, getProgramaDocentes);
