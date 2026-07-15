@@ -49,7 +49,8 @@ const buildStudentResponse = (student) => ({
 
 export const joinPrograma = async (req, res) => {
   const { token } = req.params;
-  const { numero_documento, nombre, apellido, email, tipoDocumento } = req.body;
+  const { numero_documento, nombre, apellido, email, tipoDocumento, telefono_whatsapp } = req.body;
+  const whatsapp = telefono_whatsapp ? String(telefono_whatsapp).trim() : null;
 
   if (!numero_documento || !String(numero_documento).trim()) {
     return res.status(400).json({ ok: false, error: 'El número de documento es requerido.' });
@@ -99,6 +100,17 @@ export const joinPrograma = async (req, res) => {
          ON CONFLICT DO NOTHING;`,
         [studentId, programa.id]
       );
+      // Si el estudiante ya existe pero no tiene WhatsApp registrado, lo completamos
+      // con el que acaba de ingresar (no sobreescribimos un número ya existente).
+      if (whatsapp) {
+        await pool.query(
+          `UPDATE students
+              SET telefono_whatsapp = $1, updated_at = NOW()
+            WHERE id = $2
+              AND (telefono_whatsapp IS NULL OR telefono_whatsapp = '');`,
+          [whatsapp, studentId]
+        );
+      }
     } else {
       if (!nombre || !apellido || !email) {
         return res.status(400).json({
@@ -111,6 +123,7 @@ export const joinPrograma = async (req, res) => {
         const result = await insertStudentToDB(
           {
             nombre, apellido, email, tipoDocumento, numeroDocumento: documento,
+            telefonoWhatsapp: whatsapp,
             coordinador_id: programa.coordinador_id,
             business_id: programa.business_id,
             programasIds: [programa.id],

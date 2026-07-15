@@ -83,6 +83,10 @@ export const getPostsByMateria = async (req, res) => {
       }
     });
 
+    // Publicaciones (hilos) más recientes primero; las respuestas de cada hilo se
+    // mantienen en orden cronológico (ascendente, como se construyeron arriba).
+    hilos.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
     // El estudiante actual solo puede borrar lo suyo; lo informamos para la UI
     const viewer = req.user
       ? { tipo: 'admin', id: req.user.id }

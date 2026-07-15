@@ -40,6 +40,10 @@ const ALLOWED_ORIGINS = [
     'https://quickcontrola.com',
     'https://rapictrl.com',
     'https://santasofia.vercel.app',
+    'https://www.alianzacapacitarte.com',    // Landing Alianza Capacitarte — dominio principal (descarga cert/carnet)
+    'https://alianzacapacitarte.com',        // apex (redirige a www)
+    'https://alianzacapacitarte.vercel.app', // dominio Vercel por defecto / previews
+    'http://127.0.0.1:5501',                 // VS Code Live Server (pruebas locales de la landing)
 ];
 
 app.use(cors({
