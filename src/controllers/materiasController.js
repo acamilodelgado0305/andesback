@@ -439,9 +439,13 @@ export const duplicarMateria = async (req, res) => {
           const copied = await copyFn(gcsPath, ...args);
           if (copied) return copied;
         } catch (e) {
-          console.warn('[duplicarMateria] Falló copia GCS, se comparte el original:', e.message);
+          console.warn('[duplicarMateria] Falló copia GCS, se comparte el archivo original:', e.message);
         }
-        return { publicUrl: url || null, gcsPath: null };
+        // Fallback: si la copia falla, se COMPARTE el archivo original (mismo
+        // gcs_path/url) en vez de devolver null. Algunas tablas (p. ej. modulo_pdfs)
+        // tienen gcs_path NOT NULL: insertar null abortaría TODA la transacción de
+        // duplicado (y la materia quedaría "vacía", solo con el nombre).
+        return { publicUrl: url || null, gcsPath };
       }
       // Sin gcs_path → enlace externo (YouTube/Loom/...) o vacío: se comparte la url.
       return { publicUrl: url || null, gcsPath: null };
@@ -579,10 +583,12 @@ export const duplicarMateria = async (req, res) => {
         );
         for (const pdf of clasePdfs) {
           const copied = await dupFile({ gcsPath: pdf.gcs_path, url: pdf.pdf_url }, copyClasePdf, newClaseId, pdf.nombre);
+          // modulo_pdfs.pdf_url y gcs_path son NOT NULL: si la copia no devolvió
+          // valores se referencian los del PDF original para no romper el INSERT.
           await client.query(
             `INSERT INTO "public"."modulo_pdfs" (modulo_id, clase_id, nombre, pdf_url, gcs_path, orden, business_id)
              VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-            [newModuloId, newClaseId, pdf.nombre, copied.publicUrl, copied.gcsPath, pdf.orden, businessId]
+            [newModuloId, newClaseId, pdf.nombre, copied.publicUrl ?? pdf.pdf_url, copied.gcsPath ?? pdf.gcs_path, pdf.orden, businessId]
           );
         }
 
@@ -612,10 +618,11 @@ export const duplicarMateria = async (req, res) => {
       );
       for (const pdf of temaPdfs) {
         const copied = await dupFile({ gcsPath: pdf.gcs_path, url: pdf.pdf_url }, copyModuloPdf, newModuloId, pdf.nombre);
+        // modulo_pdfs.pdf_url y gcs_path son NOT NULL (ver nota arriba).
         await client.query(
           `INSERT INTO "public"."modulo_pdfs" (modulo_id, clase_id, nombre, pdf_url, gcs_path, orden, business_id)
            VALUES ($1, NULL, $2, $3, $4, $5, $6)`,
-          [newModuloId, pdf.nombre, copied.publicUrl, copied.gcsPath, pdf.orden, businessId]
+          [newModuloId, pdf.nombre, copied.publicUrl ?? pdf.pdf_url, copied.gcsPath ?? pdf.gcs_path, pdf.orden, businessId]
         );
       }
 
