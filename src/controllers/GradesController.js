@@ -101,6 +101,11 @@ const getGradesByStudentDocumentController = async (req, res) => {
 
     try {
         const docTrim = String(numero_documento).trim();
+        // Si el portal manda ?studentId=, escopamos a esa institución concreta
+        // (un mismo documento puede tener un registro por institución). Si no,
+        // caemos al comportamiento anterior (por documento, primero que aparezca).
+        const studentIdParam = req.query.studentId;
+        const useId = studentIdParam && !isNaN(studentIdParam);
 
         const studentQuery = `
             SELECT
@@ -122,11 +127,14 @@ const getGradesByStudentDocumentController = async (req, res) => {
                     'No asignado'
                 ) AS programa_nombre
             FROM students s
-            WHERE TRIM(CAST(s.numero_documento AS TEXT)) = TRIM($1)
+            WHERE ${useId ? 's.id = $1' : 'TRIM(CAST(s.numero_documento AS TEXT)) = TRIM($1)'}
             LIMIT 1;
         `;
 
-        const studentResult = await pool.query(studentQuery, [docTrim]);
+        const studentResult = await pool.query(
+            studentQuery,
+            [useId ? parseInt(studentIdParam, 10) : docTrim]
+        );
 
         if (studentResult.rows.length === 0) {
             return res.status(404).json({
