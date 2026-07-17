@@ -195,12 +195,44 @@ const obtenerHtmlCorreo = ({ nombre, tipoDocumento, numeroDocumento, intensidadH
 };
 
 // ──────────────────────────────────────────────────────────────────────────
+// Helpers de fecha
+// ──────────────────────────────────────────────────────────────────────────
+
+// Formatea una fecha (ISO, 'YYYY-MM-DD', Date, timestamp) a 'dd/mm/yyyy'.
+// Si no se provee o es inválida, usa la fecha ACTUAL (comportamiento previo).
+// Para strings ISO se toma la parte de fecha para evitar corrimientos por zona
+// horaria (que un timestamp a medianoche UTC pinte el día anterior).
+const formatFechaDDMMYYYY = (value) => {
+    if (value) {
+        const m = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+        const d = new Date(value);
+        if (!isNaN(d.getTime())) {
+            return d.toLocaleDateString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit' });
+        }
+    }
+    return new Date().toLocaleDateString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit' });
+};
+
+// Suma un año a la fecha de expedición y la formatea. Se usa para el vencimiento
+// del carnet cuando no viene una fecha de vencimiento explícita.
+const addOneYearFormatted = (value) => {
+    const m = value && String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return `${m[3]}/${m[2]}/${Number(m[1]) + 1}`;
+    let base = value ? new Date(value) : new Date();
+    if (isNaN(base.getTime())) base = new Date();
+    base.setFullYear(base.getFullYear() + 1);
+    return base.toLocaleDateString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit' });
+};
+
+// ──────────────────────────────────────────────────────────────────────────
 // Funciones de DIBUJO reutilizables: dibujan sobre un doc PDFKit ya creado.
 // NO hacen pipe ni end — eso queda a cargo de quien las llama (descarga o correo).
 // ──────────────────────────────────────────────────────────────────────────
 
 // Dibuja el contenido del CERTIFICADO sobre el doc.
-const dibujarCertificado = async (doc, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria }) => {
+// fechaExpedicion es opcional; si falta, se usa la fecha actual.
+const dibujarCertificado = async (doc, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria, fechaExpedicion }) => {
     const certificadoImagePath = path.join(__dirname, '..', 'imagenes', 'certificado.jpg');
     const certificadoImageBuffer = fs.readFileSync(certificadoImagePath);
 
@@ -208,11 +240,8 @@ const dibujarCertificado = async (doc, { nombre, numeroDocumento, tipoDocumento,
 
     doc.fillColor('black');
 
-    const fechaActual = new Date().toLocaleDateString('es-CO', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-    }).replace(/\//g, '/');
+    // Fecha de expedición real del registro; si no llega, cae a la fecha actual.
+    const fechaExp = formatFechaDDMMYYYY(fechaExpedicion);
 
     doc.fontSize(15).font('Helvetica').text(nombre, 0, 165, {
         align: 'center',
@@ -224,7 +253,7 @@ const dibujarCertificado = async (doc, { nombre, numeroDocumento, tipoDocumento,
         width: doc.page.width,
     });
 
-    doc.fontSize(14).text(fechaActual, -80, 328, {
+    doc.fontSize(14).text(fechaExp, -80, 328, {
         align: 'center',
         width: doc.page.width,
     });
@@ -234,7 +263,7 @@ const dibujarCertificado = async (doc, { nombre, numeroDocumento, tipoDocumento,
         width: doc.page.width,
     });
 
-    doc.fontSize(14).text(fechaActual, -130, 618, {
+    doc.fontSize(14).text(fechaExp, -130, 618, {
         align: 'center',
         width: doc.page.width,
     });
@@ -254,7 +283,9 @@ const dibujarCertificado = async (doc, { nombre, numeroDocumento, tipoDocumento,
 
 // Dibuja el contenido del CARNET (frontal + posterior) sobre el doc.
 // fotoBuffer es opcional (Buffer de la foto del estudiante).
-const dibujarCarnet = async (doc, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria }, fotoBuffer) => {
+// fechaExpedicion / fechaVencimiento son opcionales; si faltan se usa la fecha
+// actual (expedición) y expedición + 1 año (vencimiento).
+const dibujarCarnet = async (doc, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria, fechaExpedicion, fechaVencimiento }, fotoBuffer) => {
     const frontalImagePath = path.join(__dirname, '..', 'imagenes', 'frontal.jpg');
     const posteriorImagePath = path.join(__dirname, '..', 'imagenes', 'posterior.jpg');
     const frontalImageBuffer = fs.readFileSync(frontalImagePath);
@@ -273,8 +304,9 @@ const dibujarCarnet = async (doc, { nombre, numeroDocumento, tipoDocumento, inte
     doc.fontSize(7).text(intensidadHoraria, 92, 106, { width: 150, align: 'left' });
     doc.fontSize(7).text(numeroDocumento, 75, 73, { width: 150, align: 'left' });
 
-    const fechaActual = new Date().toLocaleDateString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '/');
-    doc.fontSize(6).text(fechaActual, 202, 134, { width: 100, align: 'left' });
+    // Fecha de expedición real; si no llega, cae a la fecha actual.
+    const fechaExp = formatFechaDDMMYYYY(fechaExpedicion);
+    doc.fontSize(6).text(fechaExp, 202, 134, { width: 100, align: 'left' });
 
     dibujarPatronOndas(doc, { amplitud: 2, frecuencia: 10, espaciado: 4.5, grosor: 0.3 });
 
@@ -282,8 +314,11 @@ const dibujarCarnet = async (doc, { nombre, numeroDocumento, tipoDocumento, inte
     doc.addPage({ size: [85.6 * 2.83, 54 * 2.83], margin: 0 });
     doc.image(posteriorImageBuffer, 0, 0, { width: doc.page.width, height: doc.page.height });
 
-    const fechaVencimiento = new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toLocaleDateString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '/');
-    doc.fillColor('black').fontSize(7).text(fechaVencimiento, 33, 137, { width: 100, align: 'left' });
+    // Vencimiento del registro si viene; si no, expedición + 1 año.
+    const fechaVenc = fechaVencimiento
+        ? formatFechaDDMMYYYY(fechaVencimiento)
+        : addOneYearFormatted(fechaExpedicion);
+    doc.fillColor('black').fontSize(7).text(fechaVenc, 33, 137, { width: 100, align: 'left' });
 
     const urlVerificacion = 'https://quickcontrola.com/verificacion';
     const qrCodeImage = await QRCode.toDataURL(urlVerificacion, {
@@ -325,7 +360,7 @@ const generarCertificadoController = async (req, res) => {
 
         doc.pipe(res);
 
-        await dibujarCertificado(doc, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria });
+        await dibujarCertificado(doc, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria, fechaExpedicion: req.body.fechaExpedicion });
 
         doc.end();
 
@@ -372,7 +407,7 @@ const generarCarnetController = async (req, res) => {
         doc.pipe(res);
 
         const fotoBuffer = fotoFile ? fs.readFileSync(fotoFile.path) : null;
-        await dibujarCarnet(doc, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria }, fotoBuffer);
+        await dibujarCarnet(doc, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria, fechaExpedicion: req.body.fechaExpedicion, fechaVencimiento: req.body.fechaVencimiento }, fotoBuffer);
 
         doc.end();
         console.log(`Carnet PDF generado y enviado para: ${nombre}`);
@@ -409,7 +444,7 @@ const enviarCertificadoController = async (req, res) => {
 
     try {
         const doc = new PDFDocument({ size: 'A4', margin: 0 });
-        await dibujarCertificado(doc, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria });
+        await dibujarCertificado(doc, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria, fechaExpedicion: req.body.fechaExpedicion });
         const pdfBuffer = await pdfDocABuffer(doc);
 
         const fileName = `Certificado_${nombre.replace(/\s/g, '_')}_${numeroDocumento}.pdf`;
@@ -449,7 +484,7 @@ const enviarCarnetController = async (req, res) => {
 
         const doc = new PDFDocument({ size: [85.6 * 2.83, 54 * 2.83], margin: 0 });
         const fotoBuffer = fotoFile ? fs.readFileSync(fotoFile.path) : null;
-        await dibujarCarnet(doc, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria }, fotoBuffer);
+        await dibujarCarnet(doc, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria, fechaExpedicion: req.body.fechaExpedicion, fechaVencimiento: req.body.fechaVencimiento }, fotoBuffer);
         const pdfBuffer = await pdfDocABuffer(doc);
 
         const fileName = `Carnet_${nombre.replace(/\s/g, '_')}_${numeroDocumento}.pdf`;
@@ -494,13 +529,13 @@ const enviarDocumentosController = async (req, res) => {
     try {
         // 1) Certificado (A4)
         const docCert = new PDFDocument({ size: 'A4', margin: 0 });
-        await dibujarCertificado(docCert, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria });
+        await dibujarCertificado(docCert, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria, fechaExpedicion: req.body.fechaExpedicion });
         const certBuffer = await pdfDocABuffer(docCert);
 
         // 2) Carnet (tarjeta)
         const docCarnet = new PDFDocument({ size: [85.6 * 2.83, 54 * 2.83], margin: 0 });
         const fotoBuffer = fotoFile ? fs.readFileSync(fotoFile.path) : null;
-        await dibujarCarnet(docCarnet, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria }, fotoBuffer);
+        await dibujarCarnet(docCarnet, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria, fechaExpedicion: req.body.fechaExpedicion, fechaVencimiento: req.body.fechaVencimiento }, fotoBuffer);
         const carnetBuffer = await pdfDocABuffer(docCarnet);
 
         const certFileName   = `Certificado_${nombre.replace(/\s/g, '_')}_${numeroDocumento}.pdf`;

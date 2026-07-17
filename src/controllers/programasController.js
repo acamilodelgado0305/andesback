@@ -57,6 +57,7 @@ export const getProgramas = async (req, res) => {
   // Prioridad: 1) token JWT (admin panel), 2) query param (formularios públicos)
   const businessId = req.user?.bid || req.query.business_id || null;
   const { tipo_programa, activo } = req.query;
+  const isDocente = req.user?.role === "docente";
 
   try {
     const conditions = [];
@@ -66,6 +67,18 @@ export const getProgramas = async (req, res) => {
     if (businessId) {
       conditions.push(`business_id = $${idx++}`);
       valores.push(businessId);
+    }
+
+    // Un docente solo ve los programas donde dicta (defensa en profundidad; el
+    // frontend usa GET /api/docentes/me/programas, pero este endpoint no debe
+    // filtrar de más).
+    if (isDocente) {
+      conditions.push(`id IN (
+        SELECT pd.programa_id FROM programa_docentes pd
+        JOIN docentes d ON d.id = pd.docente_id
+        WHERE d.user_id = $${idx++} AND pd.business_id = $${idx++}
+      )`);
+      valores.push(req.user.id, businessId);
     }
 
     if (tipo_programa) {

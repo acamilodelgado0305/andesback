@@ -169,6 +169,34 @@ const runMigrations = async () => {
   } catch (err) {
     console.error("Error ejecutando migraciones:", err);
   }
+
+  // Acceso de docentes (login con rol propio): enlace con el usuario de
+  // auth-service (docentes.user_id, id lógico cross-BD) + datos de perfil que el
+  // docente completa en su primer ingreso. Ver migration_docente_acceso.sql.
+  //
+  // En su PROPIO try/catch a propósito: si una migración anterior falla, este
+  // bloque igual debe ejecutarse (antes iba al final del try grande y se saltaba).
+  try {
+    await pool.query(`
+      ALTER TABLE public.docentes
+        ADD COLUMN IF NOT EXISTS user_id              INTEGER,
+        ADD COLUMN IF NOT EXISTS telefono             TEXT,
+        ADD COLUMN IF NOT EXISTS bio                  TEXT,
+        ADD COLUMN IF NOT EXISTS perfil_completado_at TIMESTAMP;
+    `);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_docentes_user_business
+        ON public.docentes(user_id, business_id)
+        WHERE user_id IS NOT NULL;
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_docentes_user_id
+        ON public.docentes(user_id);
+    `);
+    console.log("Migración docente_acceso aplicada correctamente.");
+  } catch (err) {
+    console.error("Error en migración docente_acceso:", err);
+  }
 };
 
 testConnection();
