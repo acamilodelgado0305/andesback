@@ -192,7 +192,7 @@ async function main() {
   const manifest = JSON.parse(fs.readFileSync(MANIFEST, "utf-8"));
   const { business_id: businessId, docente_id: docenteId } = manifest;
 
-  log(`=== Cargar Semana 2 en QControla · modo ${tag} ===`);
+  log(`=== Cargar Semana ${manifest.week ?? "?"} en QControla · modo ${tag} ===`);
   log(`Manifest: ${MANIFEST}`);
   log(`Negocio: ${businessId} · Docente: ${docenteId} · DB: ${process.env.PGDATABASE}@${process.env.PGHOST}`);
   if (!COMMIT) log("(DRY-RUN: no se escribe nada. Añade --commit para ejecutar de verdad.)");

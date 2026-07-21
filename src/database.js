@@ -165,6 +165,12 @@ const runMigrations = async () => {
       CREATE INDEX IF NOT EXISTS idx_student_certificados_student
         ON public.student_certificados(student_id);
     `);
+    // Intensidad horaria del programa (horas teórico-prácticas) que se imprime en
+    // el diploma que se genera al graduar al estudiante.
+    await pool.query(`
+      ALTER TABLE public.programas
+        ADD COLUMN IF NOT EXISTS intensidad_horaria integer;
+    `);
     console.log("Migraciones ejecutadas correctamente.");
   } catch (err) {
     console.error("Error ejecutando migraciones:", err);

@@ -1,6 +1,7 @@
 import pool from '../database.js';
 import { uploadStudentDocumentToGCS, deleteStudentDocumentFromGCS } from '../services/gcsStudentDocuments.js';
 import { getUsersMapFromAuthService } from '../services/authServiceClient.js';
+import { generarDiplomaBuffer } from './certificadosPdfController.js';
 
 // Helper para manejar errores de forma consistente
 const handleServerError = (res, err, message) => {
@@ -914,6 +915,66 @@ const getStudentsByProgramTypeController = async (req, res) => {
 // =======================================================
 // LÓGICA DE GRADUACIÓN (PUT /students/:id/graduate)
 // =======================================================
+
+// Genera un diploma PDF por cada programa del estudiante, lo sube a GCS y lo
+// registra en student_certificados (así aparece en el apartado de Certificados
+// de su portal). Evita duplicados por nombre y devuelve cuántos diplomas nuevos
+// creó. No lanza: los errores se registran y no deben tumbar la graduación.
+const generarDiplomasEstudiante = async (student) => {
+  const { rows: programas } = await pool.query(
+    `SELECT p.id, p.nombre, p.intensidad_horaria
+       FROM estudiante_programas ep
+       JOIN programas p ON p.id = ep.programa_id
+      WHERE ep.estudiante_id = $1`,
+    [student.id]
+  );
+
+  // El diploma de referencia muestra los apellidos primero (ej. "LLORENTE CABRALES DANIELA").
+  const nombreCompleto = `${student.apellido || ''} ${student.nombre || ''}`.trim();
+  const year = new Date().getFullYear();
+  let creados = 0;
+
+  for (const programa of programas) {
+    const nombreCert = `Diploma - ${programa.nombre}.pdf`;
+
+    try {
+      const { rows: existentes } = await pool.query(
+        `SELECT 1 FROM student_certificados WHERE student_id = $1 AND nombre = $2 LIMIT 1`,
+        [student.id, nombreCert]
+      );
+      if (existentes.length > 0) continue;
+
+      const folio = `CERT-${student.id}${programa.id}-${year}`;
+      const pdfBuffer = await generarDiplomaBuffer({
+        nombre: nombreCompleto,
+        numeroDocumento: student.numero_documento,
+        tipoDocumento: student.tipo_documento,
+        curso: programa.nombre,
+        horas: programa.intensidad_horaria,
+        fechaFinalizacion: student.fecha_graduacion,
+        folio,
+      });
+
+      const { publicUrl, gcsPath } = await uploadStudentDocumentToGCS(pdfBuffer, {
+        filename: nombreCert,
+        mimetype: 'application/pdf',
+        studentId: student.id,
+      });
+
+      await pool.query(
+        `INSERT INTO student_certificados (student_id, business_id, nombre, url, gcs_path)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [student.id, student.business_id || null, nombreCert, publicUrl, gcsPath]
+      );
+      creados++;
+    } catch (err) {
+      console.error(`Error generando diploma del programa ${programa.id} para estudiante ${student.id}:`, err);
+    }
+  }
+
+  return creados;
+};
+
 export const graduateStudentController = async (req, res) => {
   const studentId = parseInt(req.params.id, 10);
   if (!studentId || isNaN(studentId)) {
@@ -927,7 +988,8 @@ export const graduateStudentController = async (req, res) => {
            activo           = false,
            updated_at       = CURRENT_TIMESTAMP
        WHERE id = $1
-       RETURNING id, nombre, apellido, fecha_graduacion`,
+       RETURNING id, nombre, apellido, tipo_documento, numero_documento,
+                 business_id, fecha_graduacion`,
       [studentId]
     );
 
@@ -935,9 +997,20 @@ export const graduateStudentController = async (req, res) => {
       return res.status(404).json({ error: 'Estudiante no encontrado.' });
     }
 
+    const student = result.rows[0];
+
+    // Generar y almacenar los diplomas. Si falla, la graduación igual queda hecha.
+    let diplomasGenerados = 0;
+    try {
+      diplomasGenerados = await generarDiplomasEstudiante(student);
+    } catch (genErr) {
+      console.error('Error generando diplomas al graduar:', genErr);
+    }
+
     return res.status(200).json({
       message: 'Estudiante marcado como graduado exitosamente.',
-      student: result.rows[0],
+      student,
+      diplomas_generados: diplomasGenerados,
     });
   } catch (err) {
     console.error('Error al graduar estudiante:', err);

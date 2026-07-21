@@ -12,6 +12,7 @@ export const createPrograma = async (req, res) => {
   const {
     nombre, tipo_programa, descripcion,
     duracion_meses, valor_matricula, valor_mensualidad, derechos_grado,
+    intensidad_horaria,
   } = req.body;
 
   if (!nombre || !tipo_programa) {
@@ -23,19 +24,22 @@ export const createPrograma = async (req, res) => {
     const mensualidad = Number(valor_mensualidad) || 0;
     const matricula   = Number(valor_matricula)   || 0;
     const grado       = Number(derechos_grado)    || 0;
+    const horas       = intensidad_horaria !== undefined && intensidad_horaria !== null && intensidad_horaria !== ''
+      ? Number(intensidad_horaria)
+      : null;
     const monto_total = (duracion * mensualidad) + matricula + grado;
 
     const { rows } = await pool.query(
       `INSERT INTO programas (
         nombre, tipo_programa, descripcion,
         duracion_meses, valor_matricula, valor_mensualidad,
-        derechos_grado, monto_total, activo, business_id
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true,$9)
+        derechos_grado, intensidad_horaria, monto_total, activo, business_id
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,true,$10)
       RETURNING *;`,
       [
         nombre.trim(), tipo_programa.trim(),
         descripcion ? descripcion.trim() : null,
-        duracion, matricula, mensualidad, grado, monto_total,
+        duracion, matricula, mensualidad, grado, horas, monto_total,
         businessId,
       ]
     );
@@ -153,20 +157,22 @@ export const updatePrograma = async (req, res) => {
   const {
     nombre, tipo_programa, descripcion,
     duracion_meses, valor_matricula, valor_mensualidad, derechos_grado, activo,
+    intensidad_horaria,
   } = req.body;
 
   try {
     const { rows } = await pool.query(
       `UPDATE programas
        SET
-         nombre            = COALESCE($1, nombre),
-         tipo_programa     = COALESCE($2, tipo_programa),
-         descripcion       = COALESCE($3, descripcion),
-         duracion_meses    = COALESCE($4, duracion_meses),
-         valor_matricula   = COALESCE($5, valor_matricula),
-         valor_mensualidad = COALESCE($6, valor_mensualidad),
-         derechos_grado    = COALESCE($7, derechos_grado),
-         activo            = COALESCE($8, activo),
+         nombre             = COALESCE($1, nombre),
+         tipo_programa      = COALESCE($2, tipo_programa),
+         descripcion        = COALESCE($3, descripcion),
+         duracion_meses     = COALESCE($4, duracion_meses),
+         valor_matricula    = COALESCE($5, valor_matricula),
+         valor_mensualidad  = COALESCE($6, valor_mensualidad),
+         derechos_grado     = COALESCE($7, derechos_grado),
+         activo             = COALESCE($8, activo),
+         intensidad_horaria = COALESCE($11, intensidad_horaria),
          monto_total = (
            (COALESCE($4, duracion_meses)    * COALESCE($6, valor_mensualidad)) +
             COALESCE($5, valor_matricula)   +
@@ -178,13 +184,14 @@ export const updatePrograma = async (req, res) => {
         nombre ? nombre.trim() : null,
         tipo_programa ? tipo_programa.trim() : null,
         descripcion ? descripcion.trim() : null,
-        duracion_meses    || null,
-        valor_matricula   || null,
-        valor_mensualidad || null,
-        derechos_grado    || null,
+        duracion_meses    !== undefined && duracion_meses    !== null && duracion_meses    !== '' ? Number(duracion_meses)    : null,
+        valor_matricula   !== undefined && valor_matricula   !== null && valor_matricula   !== '' ? Number(valor_matricula)   : null,
+        valor_mensualidad !== undefined && valor_mensualidad !== null && valor_mensualidad !== '' ? Number(valor_mensualidad) : null,
+        derechos_grado    !== undefined && derechos_grado    !== null && derechos_grado    !== '' ? Number(derechos_grado)    : null,
         activo !== undefined ? activo : null,
         id,
         businessId,
+        intensidad_horaria !== undefined && intensidad_horaria !== null && intensidad_horaria !== '' ? Number(intensidad_horaria) : null,
       ]
     );
 
@@ -219,7 +226,7 @@ export const getProgramaDetalle = async (req, res) => {
     const { rows: estudiantes } = await pool.query(
       `SELECT s.id, s.nombre, s.apellido, s.email,
               s.telefono_whatsapp, s.telefono_llamadas,
-              s.numero_documento, s.estado_matricula
+              s.numero_documento, s.estado_matricula, s.fecha_graduacion
        FROM estudiante_programas ep
        JOIN students s ON s.id = ep.estudiante_id
        WHERE ep.programa_id = $1
