@@ -171,6 +171,13 @@ const runMigrations = async () => {
       ALTER TABLE public.programas
         ADD COLUMN IF NOT EXISTS intensidad_horaria integer;
     `);
+    // Graduación POR PROGRAMA: cada inscripción (estudiante-programa) se gradúa de
+    // forma independiente. Antes la graduación era global en students.fecha_graduacion,
+    // lo que marcaba al estudiante como graduado en todos sus programas a la vez.
+    await pool.query(`
+      ALTER TABLE public.estudiante_programas
+        ADD COLUMN IF NOT EXISTS fecha_graduacion timestamp;
+    `);
     console.log("Migraciones ejecutadas correctamente.");
   } catch (err) {
     console.error("Error ejecutando migraciones:", err);

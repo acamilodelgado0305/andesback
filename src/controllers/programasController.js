@@ -226,7 +226,8 @@ export const getProgramaDetalle = async (req, res) => {
     const { rows: estudiantes } = await pool.query(
       `SELECT s.id, s.nombre, s.apellido, s.email,
               s.telefono_whatsapp, s.telefono_llamadas,
-              s.numero_documento, s.estado_matricula, s.fecha_graduacion
+              s.numero_documento, s.estado_matricula,
+              ep.fecha_graduacion
        FROM estudiante_programas ep
        JOIN students s ON s.id = ep.estudiante_id
        WHERE ep.programa_id = $1

@@ -97,9 +97,11 @@ const buildDiplomaDefinition = ({
     nombre, numeroDocumento, tipoDocumento, curso, horas, fechaFinalizacion, folio,
     secretariaNombre, secretariaRol,
     docenteNombre, docenteRol, docenteFirmaTexto,
+    nit,
     qrDataUrl,
 }) => {
     const nombreCurso = curso || "CURSO DE FORMACIÓN PROFESIONAL";
+    const nitInstitucion = nit || '900.573.053-3';
     // Normaliza espacios (colapsa dobles espacios de datos con apellido/nombre sucios)
     const nombreEstudiante = String(nombre).replace(/\s+/g, ' ').trim().toUpperCase();
     const documentoCompleto = `${tipoDocumento || 'C.C.'} ${numeroDocumento}`;
@@ -146,7 +148,12 @@ const buildDiplomaDefinition = ({
                 {
                     text: 'Excelencia y Formación Profesional',
                     style: 'slogan',
-                    margin: [0, 4, 0, 10]
+                    margin: [0, 4, 0, 2]
+                },
+                {
+                    text: `NIT ${nitInstitucion}`,
+                    style: 'nit',
+                    margin: [0, 0, 0, 10]
                 },
 
                 // 2. Eyebrow: título del documento con filetes dorados
@@ -324,6 +331,13 @@ const buildDiplomaDefinition = ({
                     italics: true,
                     alignment: 'center',
                     color: GOLD
+                },
+                nit: {
+                    font: 'Roboto',
+                    fontSize: 8.5,
+                    alignment: 'center',
+                    color: MUTED_2,
+                    characterSpacing: 0.5
                 },
                 eyebrow: {
                     font: 'Roboto',

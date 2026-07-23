@@ -916,17 +916,24 @@ const getStudentsByProgramTypeController = async (req, res) => {
 // LÓGICA DE GRADUACIÓN (PUT /students/:id/graduate)
 // =======================================================
 
-// Genera un diploma PDF por cada programa del estudiante, lo sube a GCS y lo
-// registra en student_certificados (así aparece en el apartado de Certificados
-// de su portal). Evita duplicados por nombre y devuelve cuántos diplomas nuevos
-// creó. No lanza: los errores se registran y no deben tumbar la graduación.
-const generarDiplomasEstudiante = async (student) => {
+// Genera un diploma PDF por cada programa del estudiante (o solo del programa
+// indicado en programaId), lo sube a GCS y lo registra en student_certificados
+// (así aparece en el apartado de Certificados de su portal). Evita duplicados por
+// nombre y devuelve cuántos diplomas nuevos creó. No lanza: los errores se
+// registran y no deben tumbar la graduación.
+const generarDiplomasEstudiante = async (student, programaId = null) => {
+  const params = [student.id];
+  let filtroPrograma = '';
+  if (programaId) {
+    filtroPrograma = ' AND ep.programa_id = $2';
+    params.push(programaId);
+  }
   const { rows: programas } = await pool.query(
     `SELECT p.id, p.nombre, p.intensidad_horaria
        FROM estudiante_programas ep
        JOIN programas p ON p.id = ep.programa_id
-      WHERE ep.estudiante_id = $1`,
-    [student.id]
+      WHERE ep.estudiante_id = $1${filtroPrograma}`,
+    params
   );
 
   // El diploma de referencia muestra los apellidos primero (ej. "LLORENTE CABRALES DANIELA").
@@ -981,7 +988,52 @@ export const graduateStudentController = async (req, res) => {
     return res.status(400).json({ error: 'ID de estudiante inválido.' });
   }
 
+  // Si viene programa_id, la graduación es SOLO de ese programa (no afecta a los
+  // demás programas del estudiante ni su estado global). Sin programa_id se
+  // conserva el comportamiento global (usado desde el detalle del estudiante).
+  const programaId = req.body?.programa_id ? parseInt(req.body.programa_id, 10) : null;
+
   try {
+    // Datos base del estudiante (necesarios para el diploma)
+    const { rows: baseRows } = await pool.query(
+      `SELECT id, nombre, apellido, tipo_documento, numero_documento, business_id
+         FROM students WHERE id = $1`,
+      [studentId]
+    );
+    if (baseRows.length === 0) {
+      return res.status(404).json({ error: 'Estudiante no encontrado.' });
+    }
+    const base = baseRows[0];
+
+    // ── Graduación POR PROGRAMA ────────────────────────────────────────────
+    if (programaId) {
+      const upd = await pool.query(
+        `UPDATE estudiante_programas
+            SET fecha_graduacion = CURRENT_TIMESTAMP
+          WHERE estudiante_id = $1 AND programa_id = $2
+          RETURNING fecha_graduacion`,
+        [studentId, programaId]
+      );
+      if (upd.rows.length === 0) {
+        return res.status(404).json({ error: 'El estudiante no está inscrito en este programa.' });
+      }
+
+      const student = { ...base, fecha_graduacion: upd.rows[0].fecha_graduacion };
+      let diplomasGenerados = 0;
+      try {
+        diplomasGenerados = await generarDiplomasEstudiante(student, programaId);
+      } catch (genErr) {
+        console.error('Error generando diploma al graduar (programa):', genErr);
+      }
+
+      return res.status(200).json({
+        message: 'Estudiante graduado del programa exitosamente.',
+        student,
+        diplomas_generados: diplomasGenerados,
+      });
+    }
+
+    // ── Graduación GLOBAL (comportamiento anterior) ────────────────────────
     const result = await pool.query(
       `UPDATE students
        SET fecha_graduacion = CURRENT_TIMESTAMP,
@@ -992,10 +1044,6 @@ export const graduateStudentController = async (req, res) => {
                  business_id, fecha_graduacion`,
       [studentId]
     );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Estudiante no encontrado.' });
-    }
 
     const student = result.rows[0];
 
