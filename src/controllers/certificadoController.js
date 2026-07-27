@@ -268,7 +268,7 @@ const dibujarCertificado = async (doc, { nombre, numeroDocumento, tipoDocumento,
         width: doc.page.width,
     });
 
-    const urlVerificacion = 'https://rapictrl.com/verificacion';
+    const urlVerificacion = 'https://www.alianzacapacitarte.com/verificacion.html';
     const qrCodeImage = await QRCode.toDataURL(urlVerificacion, {
         errorCorrectionLevel: 'H',
         margin: 2,
@@ -320,7 +320,7 @@ const dibujarCarnet = async (doc, { nombre, numeroDocumento, tipoDocumento, inte
         : addOneYearFormatted(fechaExpedicion);
     doc.fillColor('black').fontSize(7).text(fechaVenc, 33, 137, { width: 100, align: 'left' });
 
-    const urlVerificacion = 'https://quickcontrola.com/verificacion';
+    const urlVerificacion = 'https://www.alianzacapacitarte.com/verificacion.html';
     const qrCodeImage = await QRCode.toDataURL(urlVerificacion, {
         errorCorrectionLevel: 'H',
         margin: 1,
