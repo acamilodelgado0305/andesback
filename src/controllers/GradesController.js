@@ -156,15 +156,20 @@ const getGradesByStudentDocumentController = async (req, res) => {
             paz_salvo_financiero_fecha: studentDataFromDB.paz_salvo_financiero_fecha ?? null,
         };
 
-        // Notas filtradas por materias del programa del estudiante,
-        // solo cierres cerrados, ordenadas de más antiguo a más reciente
+        // Notas del estudiante, filtradas a las materias activas de sus programas.
+        // Se agrupan por PERIODO (cierres): el histórico primero y luego los
+        // periodos por su `orden` (Periodo 1, 2, 3).
         const gradesQuery = `
             SELECT
                 g.materia,
                 g.nota,
+                COALESCE(c.programa_id, m.programa_id) AS programa_id,
                 c.id            AS cierre_id,
                 COALESCE(c.nombre, 'En curso')  AS cierre_nombre,
                 c.fecha_cierre,
+                c.cerrado,
+                COALESCE(c.es_historico, false) AS es_historico,
+                c.orden         AS cierre_orden,
                 COALESCE(c.created_at, NOW())   AS cierre_created_at
             FROM grades g
             LEFT JOIN cierres c     ON g.cierre_id = c.id
@@ -173,18 +178,35 @@ const getGradesByStudentDocumentController = async (req, res) => {
             WHERE g.student_id = $1
               AND ep.estudiante_id = $1
               AND m.activa = true
-            ORDER BY cierre_created_at ASC, g.materia ASC
+            ORDER BY es_historico DESC, c.orden ASC NULLS LAST, cierre_created_at ASC, g.materia ASC
         `;
 
         const gradesResult = await pool.query(gradesQuery, [studentId]);
 
-        // Agrupar por cierre
+        // Periodo actual por programa (el abierto de menor orden): sirve para que
+        // el portal sepa en cuál enfocarse sin recalcularlo en el frontend.
+        const periodosActualesResult = await pool.query(
+            `SELECT DISTINCT ON (c.programa_id) c.programa_id, c.id
+             FROM cierres c
+             JOIN estudiante_programas ep ON ep.programa_id = c.programa_id
+             WHERE ep.estudiante_id = $1 AND c.cerrado = false AND c.es_historico = false
+             ORDER BY c.programa_id, c.orden ASC NULLS LAST, c.created_at ASC`,
+            [studentId]
+        );
+        const periodoActualIds = new Set(periodosActualesResult.rows.map((r) => r.id));
+
+        // Agrupar por periodo
         const cierresMap = new Map();
         for (const row of gradesResult.rows) {
             if (!cierresMap.has(row.cierre_id)) {
                 cierresMap.set(row.cierre_id, {
                     cierre_id: row.cierre_id,
+                    programa_id: row.programa_id,
                     nombre: row.cierre_nombre,
+                    orden: row.cierre_orden,
+                    cerrado: row.cerrado ?? null,
+                    es_historico: row.es_historico,
+                    es_actual: periodoActualIds.has(row.cierre_id),
                     fecha_cierre: row.fecha_cierre,
                     grades: [],
                 });
@@ -195,7 +217,37 @@ const getGradesByStudentDocumentController = async (req, res) => {
             });
         }
 
-        const gradesByCierre = Array.from(cierresMap.values());
+        // Promedio de cada periodo (promedio simple de las materias con nota)
+        const promedioDe = (items) => {
+            const nums = items
+                .map((x) => Number(x.nota))
+                .filter((n) => !Number.isNaN(n));
+            if (nums.length === 0) return null;
+            return Number((nums.reduce((a, b) => a + b, 0) / nums.length).toFixed(2));
+        };
+
+        const gradesByCierre = Array.from(cierresMap.values()).map((c) => ({
+            ...c,
+            promedio: promedioDe(c.grades),
+        }));
+
+        // Nota final acumulada GLOBAL del estudiante: promedio simple de los
+        // periodos NO históricos que ya tienen notas (cada periodo pesa igual).
+        // OJO: es global a todos sus programas. El portal muestra el acumulado
+        // POR PROGRAMA, y lo recalcula en el front sobre los periodos ya
+        // filtrados a las materias de ese programa.
+        const periodosParaFinal = gradesByCierre.filter(
+            (c) => !c.es_historico && c.promedio !== null
+        );
+        const promedioFinal = periodosParaFinal.length
+            ? Number(
+                  (
+                      periodosParaFinal.reduce((a, c) => a + c.promedio, 0) /
+                      periodosParaFinal.length
+                  ).toFixed(2)
+              )
+            : null;
+
         // Lista plana para el PDF (todas las notas)
         const grades = gradesResult.rows.map((r) => ({ materia: r.materia, nota: r.nota }));
 
@@ -203,6 +255,7 @@ const getGradesByStudentDocumentController = async (req, res) => {
             student: studentInfo,
             grades,
             gradesByCierre,
+            promedioFinal,
             studentId,
         });
     } catch (err) {

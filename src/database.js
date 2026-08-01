@@ -145,7 +145,7 @@ const runMigrations = async () => {
       SELECT id, business_id, join_coordinador_id, join_token, COALESCE(join_enabled, TRUE), NOW()
       FROM public.programas
       WHERE join_token IS NOT NULL AND join_coordinador_id IS NOT NULL
-      ON CONFLICT (token) DO NOTHING;
+      ON CONFLICT DO NOTHING;
     `);
     // Certificados (PDF) que el admin sube a un estudiante y este ve en su portal
     // (secciones Certificados y Paz y Salvo). 1 fila por archivo, se guarda en GCS.
@@ -181,6 +181,114 @@ const runMigrations = async () => {
     console.log("Migraciones ejecutadas correctamente.");
   } catch (err) {
     console.error("Error ejecutando migraciones:", err);
+  }
+
+  // ─── Sistema de PERIODOS (cortes) para calificaciones ────────────────────
+  // Un "cierre" pasa a ser un periodo académico ordenado (Periodo 1, 2, 3).
+  // El periodo ACTUAL de un programa = el de menor `orden` que no esté cerrado
+  // ni sea histórico. Las notas de cada periodo son independientes: la nota de
+  // una materia en el periodo N es el promedio de las evaluaciones que el
+  // estudiante respondió DENTRO de ese periodo.
+  //   - Programas tipo 'Curso' → 1 solo periodo (no necesitan cortes).
+  //   - Técnico / Validación   → 3 periodos.
+  // Ver migration_periodos_notas.sql.
+  try {
+    await pool.query(`
+      ALTER TABLE public.cierres
+        ADD COLUMN IF NOT EXISTS orden        INTEGER,
+        ADD COLUMN IF NOT EXISTS es_historico BOOLEAN NOT NULL DEFAULT FALSE;
+    `);
+    // El periodo en que el estudiante respondió la evaluación. Permite que el
+    // promedio de la materia se calcule por periodo y no sobre todo el histórico.
+    await pool.query(`
+      ALTER TABLE public.evaluacion_asignaciones
+        ADD COLUMN IF NOT EXISTS cierre_id INTEGER
+          REFERENCES public.cierres(id) ON DELETE SET NULL;
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_eval_asignaciones_cierre
+        ON public.evaluacion_asignaciones (cierre_id);
+    `);
+    // Orden para los cierres que ya existían (por antigüedad, dentro del programa).
+    await pool.query(`
+      UPDATE public.cierres c SET orden = sub.rn
+      FROM (
+        SELECT id, ROW_NUMBER() OVER (PARTITION BY programa_id ORDER BY created_at) rn
+        FROM public.cierres
+      ) sub
+      WHERE c.id = sub.id AND c.orden IS NULL;
+    `);
+    // Periodo histórico "Notas anteriores" (cerrado) para los programas que
+    // tienen notas sin periodo asignado — se crea uno por programa.
+    await pool.query(`
+      INSERT INTO public.cierres (nombre, programa_id, business_id, cerrado, fecha_cierre, es_historico, orden)
+      SELECT DISTINCT 'Notas anteriores', p.id, p.business_id, TRUE, NOW(), TRUE, 0
+      FROM public.grades g
+      JOIN public.programas p ON LOWER(TRIM(p.nombre)) = LOWER(TRIM(g.programa))
+      WHERE g.cierre_id IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM public.cierres c WHERE c.programa_id = p.id AND c.es_historico
+        );
+    `);
+    await pool.query(`
+      UPDATE public.grades g SET cierre_id = c.id
+      FROM public.cierres c
+      JOIN public.programas p ON c.programa_id = p.id
+      WHERE LOWER(TRIM(p.nombre)) = LOWER(TRIM(g.programa))
+        AND c.es_historico = TRUE
+        AND g.cierre_id IS NULL;
+    `);
+    // Segunda pasada: notas viejas cuyo texto `grades.programa` ya no coincide
+    // con ningún programa (programas renombrados). El portal del estudiante las
+    // resuelve por el nombre de la MATERIA, así que las anclamos por esa vía al
+    // periodo histórico del programa en el que el estudiante está inscrito.
+    await pool.query(`
+      INSERT INTO public.cierres (nombre, programa_id, business_id, cerrado, fecha_cierre, es_historico, orden)
+      SELECT DISTINCT 'Notas anteriores', p.id, p.business_id, TRUE, NOW(), TRUE, 0
+      FROM public.grades g
+      JOIN public.materias m ON LOWER(TRIM(m.nombre)) = LOWER(TRIM(g.materia))
+      JOIN public.estudiante_programas ep
+        ON ep.programa_id = m.programa_id AND ep.estudiante_id = g.student_id
+      JOIN public.programas p ON p.id = m.programa_id
+      WHERE g.cierre_id IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM public.cierres c WHERE c.programa_id = p.id AND c.es_historico
+        );
+    `);
+    await pool.query(`
+      UPDATE public.grades g SET cierre_id = c.id
+      FROM public.materias m
+      JOIN public.estudiante_programas ep ON ep.programa_id = m.programa_id
+      JOIN public.cierres c ON c.programa_id = m.programa_id AND c.es_historico = TRUE
+      WHERE g.cierre_id IS NULL
+        AND LOWER(TRIM(m.nombre)) = LOWER(TRIM(g.materia))
+        AND ep.estudiante_id = g.student_id;
+    `);
+    // Periodos estándar por tipo de programa. Idempotente: solo inserta el
+    // orden que falte, así los periodos que el admin ya creó se respetan.
+    await pool.query(`
+      INSERT INTO public.cierres (nombre, programa_id, business_id, cerrado, es_historico, orden)
+      SELECT
+        CASE WHEN p.tipo_programa = 'Curso' THEN 'Periodo único'
+             ELSE 'Periodo ' || n.orden END,
+        p.id, p.business_id, FALSE, FALSE, n.orden
+      FROM public.programas p
+      CROSS JOIN LATERAL (
+        SELECT generate_series(1, CASE WHEN p.tipo_programa = 'Curso' THEN 1 ELSE 3 END) AS orden
+      ) n
+      WHERE COALESCE(p.archivado, FALSE) = FALSE
+        AND NOT EXISTS (
+          SELECT 1 FROM public.cierres c
+          WHERE c.programa_id = p.id AND c.es_historico = FALSE AND c.orden = n.orden
+        );
+    `);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_cierres_programa_orden
+        ON public.cierres (programa_id, orden);
+    `);
+    console.log("Migración periodos_notas aplicada correctamente.");
+  } catch (err) {
+    console.error("Error en migración periodos_notas:", err);
   }
 
   // Acceso de docentes (login con rol propio): enlace con el usuario de

@@ -1,5 +1,49 @@
 // src/controllers/evaluacionesController.js
 import pool from '../database.js';
+import { getPeriodoActual } from './cierresController.js';
+
+/**
+ * Recalcula y guarda la nota de una materia para un estudiante en UN periodo.
+ *
+ * La nota de la materia en el periodo N es el promedio de las evaluaciones
+ * (normalmente una por tema) que el estudiante respondió DENTRO de ese periodo.
+ * Los periodos son independientes entre sí: lo respondido en el Periodo 1 no
+ * afecta la nota del Periodo 2.
+ *
+ * Si en el periodo no queda ninguna evaluación resuelta, la nota existente se
+ * deja intacta a propósito: podría haberla registrado el admin a mano y no
+ * queremos borrar datos que no generamos nosotros.
+ */
+const recalcularNotaMateriaPeriodo = async (client, {
+  estudianteId, materiaId, materiaNombre, programaNombre, cierreId,
+}) => {
+  const { rows } = await client.query(
+    `SELECT AVG(ea.calificacion) AS promedio, COUNT(*) AS n
+     FROM public.evaluacion_asignaciones ea
+     JOIN public.evaluaciones e ON e.id = ea.evaluacion_id
+     WHERE e.materia_id = $1 AND ea.estudiante_id = $2
+       AND ea.estado = 'finalizada' AND ea.calificacion IS NOT NULL
+       AND ea.cierre_id IS NOT DISTINCT FROM $3;`,
+    [materiaId, estudianteId, cierreId]
+  );
+
+  if (Number(rows[0].n || 0) === 0) return null;
+
+  const nota = Number(Number(rows[0].promedio).toFixed(2));
+  await client.query(
+    `WITH upsert AS (
+       UPDATE public.grades
+       SET nota = $4, programa = $3, updated_at = NOW()
+       WHERE student_id = $1 AND materia = $2 AND cierre_id IS NOT DISTINCT FROM $5
+       RETURNING id
+     )
+     INSERT INTO public.grades (student_id, materia, programa, nota, cierre_id, created_at, updated_at)
+     SELECT $1, $2, $3, $4, $5, NOW(), NOW()
+     WHERE NOT EXISTS (SELECT 1 FROM upsert);`,
+    [estudianteId, materiaNombre, programaNombre, nota, cierreId]
+  );
+  return nota;
+};
 
 /**
  * Crear una nueva evaluación
@@ -1131,14 +1175,6 @@ export const responderEvaluacion = async (req, res) => {
     let notaEscala5 = puntajeMaximo > 0 ? (calificacionBruta / puntajeMaximo) * 5 : 0;
     notaEscala5 = Number(notaEscala5.toFixed(2));
 
-    await client.query(
-      `UPDATE public.evaluacion_asignaciones
-       SET estado = 'finalizada', intentos_realizados = intentos_realizados + 1,
-           calificacion = $1, fecha_resuelto = NOW()
-       WHERE id = $2;`,
-      [notaEscala5, asignacionId]
-    );
-
     const evalMateriaResult = await client.query(
       `SELECT e.materia_id, m.nombre AS materia_nombre, p.nombre AS programa_nombre, p.id AS programa_id
        FROM public.evaluaciones e
@@ -1148,32 +1184,50 @@ export const responderEvaluacion = async (req, res) => {
       [asignacion.evaluacion_id]
     );
 
-    if (
-      evalMateriaResult.rows.length > 0 &&
-      evalMateriaResult.rows[0].materia_id &&
-      evalMateriaResult.rows[0].materia_nombre &&
-      evalMateriaResult.rows[0].programa_nombre
-    ) {
-      const { materia_nombre, programa_nombre, programa_id } = evalMateriaResult.rows[0];
+    const infoEval = evalMateriaResult.rows[0] || {};
+    const tieneMateria = Boolean(
+      infoEval.materia_id && infoEval.materia_nombre && infoEval.programa_nombre
+    );
 
-      const cierreResult = await client.query(
-        `SELECT id FROM public.cierres WHERE programa_id = $1 AND cerrado = false ORDER BY created_at DESC LIMIT 1;`,
-        [programa_id]
-      );
-      const cierre_id = cierreResult.rows.length > 0 ? cierreResult.rows[0].id : null;
+    // Periodo en que queda registrada esta respuesta: el periodo ACTUAL del
+    // programa (el de menor `orden` que siga abierto). Si el programa no tiene
+    // periodos abiertos, queda sin periodo (NULL) como antes.
+    const periodoActual = tieneMateria
+      ? await getPeriodoActual(infoEval.programa_id, client)
+      : null;
+    const cierreId = periodoActual?.id ?? null;
+    const cierreAnterior = asignacion.cierre_id ?? null; // por si es un reintento en otro periodo
 
-      await client.query(
-        `WITH upsert AS (
-           UPDATE public.grades
-           SET nota = $4, programa = $3, updated_at = NOW()
-           WHERE student_id = $1 AND materia = $2 AND cierre_id IS NOT DISTINCT FROM $5
-           RETURNING id
-         )
-         INSERT INTO public.grades (student_id, materia, programa, nota, cierre_id, created_at, updated_at)
-         SELECT $1, $2, $3, $4, $5, NOW(), NOW()
-         WHERE NOT EXISTS (SELECT 1 FROM upsert);`,
-        [asignacion.estudiante_id, materia_nombre, programa_nombre, notaEscala5, cierre_id]
-      );
+    await client.query(
+      `UPDATE public.evaluacion_asignaciones
+       SET estado = 'finalizada', intentos_realizados = intentos_realizados + 1,
+           calificacion = $1, fecha_resuelto = NOW(), cierre_id = $3
+       WHERE id = $2;`,
+      [notaEscala5, asignacionId, cierreId]
+    );
+
+    if (tieneMateria) {
+      const { materia_id, materia_nombre, programa_nombre } = infoEval;
+
+      await recalcularNotaMateriaPeriodo(client, {
+        estudianteId: asignacion.estudiante_id,
+        materiaId: materia_id,
+        materiaNombre: materia_nombre,
+        programaNombre: programa_nombre,
+        cierreId,
+      });
+
+      // Reintento presentado en un periodo distinto al original: la nota del
+      // periodo anterior ya no incluye esta evaluación, hay que recalcularla.
+      if (cierreAnterior !== null && cierreAnterior !== cierreId) {
+        await recalcularNotaMateriaPeriodo(client, {
+          estudianteId: asignacion.estudiante_id,
+          materiaId: materia_id,
+          materiaNombre: materia_nombre,
+          programaNombre: programa_nombre,
+          cierreId: cierreAnterior,
+        });
+      }
     }
 
     // Si la evaluación está vinculada a un módulo y el estudiante aprueba (≥3.0) → completar módulo
