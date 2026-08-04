@@ -39,6 +39,7 @@ const ALLOWED_ORIGINS = [
     'https://andesfront.onrender.com',
     'https://quickcontrola.com',
     'https://rapictrl.com',
+    'https://app.rapictrl.com',
     'https://santasofia.vercel.app',
     'https://www.alianzacapacitarte.com',    // Landing Alianza Capacitarte — dominio principal (descarga cert/carnet)
     'https://alianzacapacitarte.com',        // apex (redirige a www)

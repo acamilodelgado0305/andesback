@@ -183,6 +183,57 @@ const getGradesByStudentDocumentController = async (req, res) => {
 
         const gradesResult = await pool.query(gradesQuery, [studentId]);
 
+        // Desglose por TEMA: la nota de una materia en un periodo es el promedio
+        // de las evaluaciones que el estudiante respondió en ese periodo, y esas
+        // evaluaciones cuelgan de un tema (`modulos` vía `modulo_evaluaciones`).
+        // Aquí se reconstruye ese detalle para mostrarlo bajo cada materia.
+        // Si una evaluación no está enganchada a ningún tema, se lista con su
+        // propio título para no perderla.
+        const temasResult = await pool.query(
+            `SELECT
+                ea.cierre_id,
+                mat.nombre                       AS materia,
+                COALESCE(md.titulo, e.titulo)    AS tema,
+                COALESCE(md.orden, 9999)         AS tema_orden,
+                (md.id IS NOT NULL)              AS es_tema,
+                ROUND(AVG(ea.calificacion)::numeric, 2) AS nota,
+                COUNT(*)                         AS total_evaluaciones
+             FROM public.evaluacion_asignaciones ea
+             JOIN public.evaluaciones e ON e.id = ea.evaluacion_id
+             LEFT JOIN LATERAL (
+                 SELECT m2.id, m2.titulo, m2.orden, m2.materia_id
+                 FROM public.modulo_evaluaciones me
+                 JOIN public.modulos m2 ON m2.id = me.modulo_id
+                 WHERE me.evaluacion_id = e.id
+                 ORDER BY m2.orden ASC, m2.id ASC
+                 LIMIT 1
+             ) md ON TRUE
+             JOIN public.materias mat ON mat.id = COALESCE(e.materia_id, md.materia_id)
+             WHERE ea.estudiante_id = $1
+               AND ea.estado = 'finalizada'
+               AND ea.calificacion IS NOT NULL
+             GROUP BY ea.cierre_id, mat.nombre, md.id, COALESCE(md.titulo, e.titulo),
+                      COALESCE(md.orden, 9999)
+             ORDER BY tema_orden ASC, tema ASC`,
+            [studentId]
+        );
+
+        // Indexado por periodo + materia normalizada (grades guarda la materia
+        // como texto, igual que el resto de este controlador).
+        const claveTema = (cierreId, materia) =>
+            `${cierreId ?? 'null'}|${String(materia || '').trim().toLowerCase()}`;
+        const temasMap = new Map();
+        for (const row of temasResult.rows) {
+            const key = claveTema(row.cierre_id, row.materia);
+            if (!temasMap.has(key)) temasMap.set(key, []);
+            temasMap.get(key).push({
+                tema: row.tema,
+                nota: row.nota === null ? null : Number(row.nota),
+                es_tema: row.es_tema,
+                total_evaluaciones: Number(row.total_evaluaciones),
+            });
+        }
+
         // Periodo actual por programa (el abierto de menor orden): sirve para que
         // el portal sepa en cuál enfocarse sin recalcularlo en el frontend.
         const periodosActualesResult = await pool.query(
@@ -214,6 +265,7 @@ const getGradesByStudentDocumentController = async (req, res) => {
             cierresMap.get(row.cierre_id).grades.push({
                 materia: row.materia,
                 nota: row.nota,
+                temas: temasMap.get(claveTema(row.cierre_id, row.materia)) || [],
             });
         }
 
