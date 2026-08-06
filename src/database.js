@@ -178,6 +178,19 @@ const runMigrations = async () => {
       ALTER TABLE public.estudiante_programas
         ADD COLUMN IF NOT EXISTS fecha_graduacion timestamp;
     `);
+    // Archivado de PROGRAMAS: un programa archivado desaparece de la lista principal
+    // pero no se borra (su contenido, estudiantes e historial se conservan). Es
+    // distinto de `activo`, que solo marca si el programa está abierto o no.
+    await pool.query(`
+      ALTER TABLE public.programas
+        ADD COLUMN IF NOT EXISTS archived        boolean NOT NULL DEFAULT false,
+        ADD COLUMN IF NOT EXISTS archived_reason text,
+        ADD COLUMN IF NOT EXISTS archived_at     timestamp;
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_programas_archived
+        ON public.programas (business_id, archived);
+    `);
     console.log("Migraciones ejecutadas correctamente.");
   } catch (err) {
     console.error("Error ejecutando migraciones:", err);

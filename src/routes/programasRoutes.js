@@ -21,6 +21,8 @@ import {
   getProgramaProgreso,
   getEstudianteProgresoPrograma,
   removeEstudianteFromPrograma,
+  archivePrograma,
+  restorePrograma,
 } from "../controllers/programasController.js";
 import { authMiddleware, optionalAuthMiddleware } from "../middlewares/authMiddleware.js";
 import { docenteProgramaGuard } from "../middlewares/docenteAccess.js";
@@ -66,5 +68,9 @@ router.delete("/programas/:id/join-links/:linkId",          authMiddleware, doce
 router.post("/programas",        authMiddleware, createPrograma);
 router.put("/programas/:id",     authMiddleware, docenteProgramaGuard, updatePrograma);
 router.delete("/programas/:id",  authMiddleware, docenteProgramaGuard, deletePrograma);
+
+// Archivar / restaurar: saca el programa de la lista principal sin borrar nada.
+router.patch("/programas/:id/archive", authMiddleware, docenteProgramaGuard, archivePrograma);
+router.patch("/programas/:id/restore", authMiddleware, docenteProgramaGuard, restorePrograma);
 
 export default router;

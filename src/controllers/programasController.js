@@ -60,13 +60,21 @@ export const createPrograma = async (req, res) => {
 export const getProgramas = async (req, res) => {
   // Prioridad: 1) token JWT (admin panel), 2) query param (formularios públicos)
   const businessId = req.user?.bid || req.query.business_id || null;
-  const { tipo_programa, activo } = req.query;
+  const { tipo_programa, activo, archived } = req.query;
   const isDocente = req.user?.role === "docente";
 
   try {
     const conditions = [];
     const valores    = [];
     let idx = 1;
+
+    // Archivados: por defecto NO se listan (la lista principal solo muestra los
+    // vigentes). Con ?archived=true se devuelven únicamente los archivados.
+    conditions.push(
+      archived === "true"
+        ? "archived = TRUE"
+        : "(archived = FALSE OR archived IS NULL)"
+    );
 
     if (businessId) {
       conditions.push(`business_id = $${idx++}`);
@@ -698,6 +706,69 @@ export const deletePrograma = async (req, res) => {
   } catch (err) {
     console.error("Error en deletePrograma:", err);
     return res.status(500).json({ message: "Error al desactivar el programa." });
+  }
+};
+
+// --- ARCHIVAR / RESTAURAR ---
+// Archivar saca al programa de la lista principal sin borrar nada: materias,
+// clases, estudiantes inscritos y su historial siguen intactos. Se puede volver
+// a ver desde el filtro "Archivados" y restaurar en cualquier momento.
+export const archivePrograma = async (req, res) => {
+  const businessId = req.user?.bid;
+  if (!businessId) {
+    return res.status(400).json({ message: "Token sin business asociado." });
+  }
+
+  const { id } = req.params;
+  const { motivo } = req.body || {};
+
+  try {
+    const { rows } = await pool.query(
+      `UPDATE programas
+       SET archived = TRUE,
+           archived_reason = $3,
+           archived_at = NOW()
+       WHERE id = $1 AND business_id = $2
+       RETURNING id, nombre, archived, archived_reason, archived_at;`,
+      [id, businessId, motivo ? String(motivo).trim() : null]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "Programa no encontrado." });
+    }
+    return res.status(200).json({ message: "Programa archivado correctamente.", data: rows[0] });
+  } catch (err) {
+    console.error("Error en archivePrograma:", err);
+    return res.status(500).json({ message: "Error al archivar el programa." });
+  }
+};
+
+export const restorePrograma = async (req, res) => {
+  const businessId = req.user?.bid;
+  if (!businessId) {
+    return res.status(400).json({ message: "Token sin business asociado." });
+  }
+
+  const { id } = req.params;
+
+  try {
+    const { rows } = await pool.query(
+      `UPDATE programas
+       SET archived = FALSE,
+           archived_reason = NULL,
+           archived_at = NULL
+       WHERE id = $1 AND business_id = $2
+       RETURNING id, nombre, archived;`,
+      [id, businessId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "Programa no encontrado." });
+    }
+    return res.status(200).json({ message: "Programa restaurado correctamente.", data: rows[0] });
+  } catch (err) {
+    console.error("Error en restorePrograma:", err);
+    return res.status(500).json({ message: "Error al restaurar el programa." });
   }
 };
 
