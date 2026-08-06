@@ -917,3 +917,263 @@ export const getEstudianteProgresoPrograma = async (req, res) => {
     return res.status(500).json({ message: "Error al obtener el detalle de avance del estudiante." });
   }
 };
+
+// ================================================================
+// MI AVANCE (portal del estudiante)
+// ================================================================
+// Resumen de "en qué voy / qué me falta" para el estudiante autenticado:
+// por cada programa → materias → clases pendientes/vistas y evaluaciones
+// pendientes/resueltas, con el id necesario para entrar a responder.
+// flexAuth: el estudiante solo puede pedir SU avance; un admin puede pedir el
+// de cualquiera de sus estudiantes.
+export const getAvanceEstudiante = async (req, res) => {
+  const { estudianteId } = req.params;
+
+  if (req.student && Number(req.student.id) !== Number(estudianteId)) {
+    return res.status(403).json({ ok: false, message: "No autorizado." });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Auto-asignación (misma que hacen getModulosDeEstudiante y
+    // getEvaluacionesDeEstudiante) para que los totales del panel coincidan
+    // exactamente con lo que el estudiante ve dentro de cada materia, incluso
+    // si se inscribió después de que se creó el tema o la evaluación.
+    await client.query(
+      `INSERT INTO estudiante_modulos (modulo_id, estudiante_id, estado, business_id)
+       SELECT m.id, $1, 'pendiente', m.business_id
+       FROM modulos m
+       LEFT JOIN materias mat ON mat.id = m.materia_id
+       WHERE m.activa = true
+         AND EXISTS (
+           SELECT 1 FROM estudiante_programas ep
+           WHERE ep.estudiante_id = $1
+             AND ep.programa_id = COALESCE(mat.programa_id, m.programa_id)
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM estudiante_modulos em
+           WHERE em.modulo_id = m.id AND em.estudiante_id = $1
+         )`,
+      [estudianteId]
+    );
+
+    await client.query(
+      `INSERT INTO public.evaluacion_asignaciones (evaluacion_id, estudiante_id, estado, intentos_realizados)
+       SELECT e.id, $1, 'pendiente', 0
+       FROM public.evaluaciones e
+       LEFT JOIN public.materias mat ON mat.id = e.materia_id
+       WHERE e.activa = TRUE
+         AND EXISTS (
+           SELECT 1 FROM public.estudiante_programas ep
+           WHERE ep.estudiante_id = $1
+             AND (
+               ep.programa_id = e.programa_id
+               OR ep.programa_id = mat.programa_id
+               OR EXISTS (
+                 SELECT 1 FROM public.evaluacion_programas epr
+                 WHERE epr.evaluacion_id = e.id AND epr.programa_id = ep.programa_id
+               )
+             )
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM public.evaluacion_asignaciones ea
+           WHERE ea.evaluacion_id = e.id AND ea.estudiante_id = $1
+         )`,
+      [estudianteId]
+    );
+
+    // Clases accesibles del estudiante, en el mismo orden en que las ve dentro
+    // de la materia (tema → clase), con su estado.
+    const { rows: claseRows } = await client.query(
+      `SELECT COALESCE(mat.programa_id, m.programa_id) AS programa_id,
+              p.nombre AS programa_nombre,
+              mat.id AS materia_id,
+              COALESCE(mat.nombre, 'General') AS materia_nombre,
+              m.id AS modulo_id, m.titulo AS modulo_titulo,
+              c.id AS clase_id, c.titulo AS clase_titulo,
+              COALESCE(ec.estado, 'pendiente') AS estado,
+              ec.fecha_completado
+       FROM estudiante_modulos em
+       JOIN modulos m ON m.id = em.modulo_id AND m.activa = true
+       LEFT JOIN materias mat ON mat.id = m.materia_id
+       LEFT JOIN programas p ON p.id = COALESCE(mat.programa_id, m.programa_id)
+       JOIN clases c ON c.modulo_id = m.id AND c.activa = true
+       LEFT JOIN estudiante_clases ec ON ec.clase_id = c.id AND ec.estudiante_id = $1
+       WHERE em.estudiante_id = $1
+         AND EXISTS (
+           SELECT 1 FROM estudiante_programas ep
+           WHERE ep.estudiante_id = $1
+             AND ep.programa_id = COALESCE(mat.programa_id, m.programa_id)
+         )
+       ORDER BY p.nombre ASC, mat.nombre ASC NULLS FIRST,
+                m.orden ASC, m.created_at ASC, c.orden ASC, c.created_at ASC`,
+      [estudianteId]
+    );
+
+    // Evaluaciones vigentes del estudiante (mismo filtro de fechas que usa su
+    // listado de evaluaciones) con la materia/programa al que pertenecen.
+    const { rows: evalRows } = await client.query(
+      `SELECT ea.id AS asignacion_id, ea.estado, ea.calificacion, ea.fecha_resuelto,
+              e.id AS evaluacion_id, e.titulo, e.descripcion, e.fecha_fin,
+              e.materia_id, mat.nombre AS materia_nombre,
+              mev.modulo_id,
+              COALESCE(
+                mat.programa_id,
+                e.programa_id,
+                (SELECT epr.programa_id
+                   FROM public.evaluacion_programas epr
+                   JOIN public.estudiante_programas ep2
+                     ON ep2.programa_id = epr.programa_id AND ep2.estudiante_id = $1
+                  WHERE epr.evaluacion_id = e.id
+                  LIMIT 1)
+              ) AS programa_id
+       FROM public.evaluacion_asignaciones ea
+       JOIN public.evaluaciones e ON e.id = ea.evaluacion_id AND e.activa = TRUE
+       LEFT JOIN public.materias mat ON mat.id = e.materia_id
+       LEFT JOIN LATERAL (
+         SELECT me.modulo_id FROM public.modulo_evaluaciones me
+         WHERE me.evaluacion_id = e.id LIMIT 1
+       ) mev ON TRUE
+       WHERE ea.estudiante_id = $1
+         AND (e.fecha_inicio IS NULL OR e.fecha_inicio <= NOW())
+         AND (e.fecha_fin IS NULL OR e.fecha_fin >= NOW())
+       ORDER BY e.titulo ASC`,
+      [estudianteId]
+    );
+
+    // Programas del estudiante: siembran el listado (para que un programa sin
+    // clases ni evaluaciones también aparezca) y dan el nombre correcto.
+    const { rows: progRows } = await client.query(
+      `SELECT p.id, p.nombre
+       FROM estudiante_programas ep
+       JOIN programas p ON p.id = ep.programa_id
+       WHERE ep.estudiante_id = $1
+       ORDER BY p.nombre ASC`,
+      [estudianteId]
+    );
+
+    await client.query("COMMIT");
+
+    // ─── Agrupar: programas → materias → clases / evaluaciones ───────────────
+    const programas = new Map();
+    const getPrograma = (id, nombre) => {
+      const key = id ?? "sin_programa";
+      if (!programas.has(key)) {
+        programas.set(key, {
+          programa_id: id ?? null,
+          nombre: nombre || "Sin programa",
+          total_clases: 0,
+          clases_completadas: 0,
+          total_evaluaciones: 0,
+          evaluaciones_resueltas: 0,
+          materias: new Map(),
+        });
+      }
+      return programas.get(key);
+    };
+    const getMateria = (prog, id, nombre) => {
+      const key = id ?? "sin_materia";
+      if (!prog.materias.has(key)) {
+        prog.materias.set(key, {
+          materia_id: id ?? null,
+          nombre: nombre || "General",
+          total_clases: 0,
+          clases_completadas: 0,
+          clases_pendientes: [],
+          siguiente_clase: null,
+          evaluaciones: [],
+        });
+      }
+      return prog.materias.get(key);
+    };
+
+    progRows.forEach((p) => getPrograma(p.id, p.nombre));
+
+    for (const r of claseRows) {
+      const prog = getPrograma(r.programa_id, r.programa_nombre);
+      const mat = getMateria(prog, r.materia_id, r.materia_nombre);
+
+      mat.total_clases += 1;
+      prog.total_clases += 1;
+      const numero = mat.total_clases; // numeración continua dentro de la materia
+
+      if (r.estado === "completado") {
+        mat.clases_completadas += 1;
+        prog.clases_completadas += 1;
+      } else {
+        const pendiente = {
+          clase_id: r.clase_id,
+          titulo: r.clase_titulo,
+          numero,
+          modulo_id: r.modulo_id,
+          modulo_titulo: r.modulo_titulo,
+        };
+        mat.clases_pendientes.push(pendiente);
+        if (!mat.siguiente_clase) mat.siguiente_clase = pendiente;
+      }
+    }
+
+    for (const r of evalRows) {
+      const prog = getPrograma(r.programa_id, null);
+      const mat = getMateria(prog, r.materia_id, r.materia_nombre);
+      const resuelta = r.estado === "finalizada";
+
+      prog.total_evaluaciones += 1;
+      if (resuelta) prog.evaluaciones_resueltas += 1;
+
+      mat.evaluaciones.push({
+        asignacion_id: r.asignacion_id,
+        evaluacion_id: r.evaluacion_id,
+        titulo: r.titulo,
+        descripcion: r.descripcion,
+        estado: r.estado,
+        calificacion: r.calificacion,
+        fecha_fin: r.fecha_fin,
+        modulo_id: r.modulo_id,
+        resuelta,
+      });
+    }
+
+    const salida = [...programas.values()].map((p) => {
+      const materias = [...p.materias.values()];
+      // Primera materia con clases pendientes → dónde continuar en el programa.
+      const materiaPendiente = materias.find((m) => m.siguiente_clase);
+      const clases_pendientes = p.total_clases - p.clases_completadas;
+      const evaluaciones_pendientes = p.total_evaluaciones - p.evaluaciones_resueltas;
+      return {
+        programa_id: p.programa_id,
+        nombre: p.nombre,
+        total_clases: p.total_clases,
+        clases_completadas: p.clases_completadas,
+        clases_pendientes,
+        total_evaluaciones: p.total_evaluaciones,
+        evaluaciones_resueltas: p.evaluaciones_resueltas,
+        evaluaciones_pendientes,
+        porcentaje: p.total_clases + p.total_evaluaciones > 0
+          ? Math.round(
+              ((p.clases_completadas + p.evaluaciones_resueltas) /
+                (p.total_clases + p.total_evaluaciones)) * 100
+            )
+          : 0,
+        continuar: materiaPendiente
+          ? {
+              materia_id: materiaPendiente.materia_id,
+              materia_nombre: materiaPendiente.nombre,
+              ...materiaPendiente.siguiente_clase,
+            }
+          : null,
+        materias,
+      };
+    });
+
+    return res.status(200).json({ ok: true, programas: salida });
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("Error en getAvanceEstudiante:", err);
+    return res.status(500).json({ ok: false, message: "Error al obtener tu avance." });
+  } finally {
+    client.release();
+  }
+};

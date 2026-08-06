@@ -23,8 +23,10 @@ import {
   removeEstudianteFromPrograma,
   archivePrograma,
   restorePrograma,
+  getAvanceEstudiante,
 } from "../controllers/programasController.js";
 import { authMiddleware, optionalAuthMiddleware } from "../middlewares/authMiddleware.js";
+import { flexAuthMiddleware } from "../middlewares/flexAuthMiddleware.js";
 import { docenteProgramaGuard } from "../middlewares/docenteAccess.js";
 
 const router = express.Router();
@@ -40,6 +42,10 @@ router.get("/programas/:id/estudiantes/:estudianteId/progreso", authMiddleware, 
 
 // Sacar un estudiante del programa (lo desvincula; no lo archiva ni lo borra)
 router.delete("/programas/:id/estudiantes/:estudianteId", authMiddleware, docenteProgramaGuard, removeEstudianteFromPrograma);
+
+// "Mi avance" del portal del estudiante: qué lleva y qué le falta por programa
+// (clases y evaluaciones). flexAuth: el estudiante solo puede pedir el suyo.
+router.get("/estudiantes/:estudianteId/avance", flexAuthMiddleware, getAvanceEstudiante);
 
 // Docentes asociados a un programa (muchos a muchos)
 router.get("/programas/:id/docentes",               authMiddleware, docenteProgramaGuard, getProgramaDocentes);
