@@ -20,6 +20,7 @@ import modulosRouter from "./routes/modulosRouter.js"
 import clasesRouter from "./routes/clasesRouter.js"
 import claseComentariosRouter from "./routes/claseComentariosRouter.js"
 import foroRouter from "./routes/foroRouter.js"
+import demoRouter from "./routes/demoRouter.js"
 import dotenv from "dotenv";
 
 
@@ -64,6 +65,9 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // ─── Rutas PÚBLICAS del portal de estudiantes (SIN autenticación) ───
 // IMPORTANTE: Debe ir ANTES de cualquier router que use authMiddleware global
 app.use('/api/student-portal', studentAuthRouter);
+
+// ─── Demo educativo (servicio a servicio, protegido por secreto interno) ───
+app.use('/api', demoRouter);
 
 // Rutas públicas (sin protección)
 app.use('/api', authRouter);

@@ -331,6 +331,38 @@ const runMigrations = async () => {
   } catch (err) {
     console.error("Error en migración docente_acceso:", err);
   }
+
+  // El nombre de un programa debe ser único DENTRO del negocio, no en toda la
+  // base. El índice viejo (programas_nombre_idx, único global) impedía que dos
+  // instituciones distintas ofrecieran "Validación de Bachillerato" — y rompe
+  // el demo educativo, donde cada visitante siembra los mismos programas.
+  //
+  // El controlador ya asumía este comportamiento: su error 23505 dice
+  // "Ya existe un programa con ese nombre en este negocio".
+  //
+  // Se aborta si hay duplicados (business_id, nombre) preexistentes, para no
+  // dejar la migración a medias con el índice viejo ya eliminado.
+  try {
+    const { rows: dup } = await pool.query(`
+      SELECT business_id, nombre FROM public.programas
+      GROUP BY business_id, nombre HAVING COUNT(*) > 1 LIMIT 5;
+    `);
+    if (dup.length > 0) {
+      console.warn(
+        "Migración programa_nombre_por_negocio OMITIDA: hay nombres de programa repetidos dentro de un mismo negocio.",
+        dup
+      );
+    } else {
+      await pool.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_programas_business_nombre
+          ON public.programas (business_id, nombre);
+      `);
+      await pool.query(`DROP INDEX IF EXISTS public.programas_nombre_idx;`);
+      console.log("Migración programa_nombre_por_negocio aplicada correctamente.");
+    }
+  } catch (err) {
+    console.error("Error en migración programa_nombre_por_negocio:", err);
+  }
 };
 
 testConnection();
