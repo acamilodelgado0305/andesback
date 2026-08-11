@@ -4,55 +4,6 @@ import fetch from 'node-fetch';
 import PDFDocument from 'pdfkit';
 import QRCode from 'qrcode';
 
-// Dibuja un patrón de ondas semitransparente sobre la página actual del documento.
-// Actúa como marca de seguridad anti-copia: las ondas se reproducen distorsionadas
-// en fotocopias o escaneos de baja calidad, haciendo evidente la copia.
-const dibujarPatronOndas = (doc, opciones = {}) => {
-    const {
-        color = '#1a3a8a',
-        opacidad = 0.055,
-        amplitud = 4.5,
-        frecuencia = 22,
-        espaciado = 9,
-        grosor = 0.4,
-    } = opciones;
-
-    const w = doc.page.width;
-    const h = doc.page.height;
-
-    doc.save();
-    doc.lineWidth(grosor);
-
-    // Capa 1: ondas horizontales (izquierda → derecha)
-    for (let y = espaciado / 2; y <= h + amplitud; y += espaciado) {
-        doc.moveTo(0, y);
-        for (let x = 0; x < w; x += frecuencia) {
-            doc.bezierCurveTo(
-                x + frecuencia * 0.25, y - amplitud,
-                x + frecuencia * 0.75, y + amplitud,
-                x + frecuencia, y
-            );
-        }
-        doc.strokeColor(color, opacidad).stroke();
-    }
-
-    // Capa 2: ondas con fase invertida y frecuencia distinta (crea efecto moiré con la capa 1)
-    const f2 = frecuencia * 1.4;
-    const offset = espaciado * 0.6;
-    for (let y = offset; y <= h + amplitud; y += espaciado * 1.6) {
-        doc.moveTo(0, y);
-        for (let x = 0; x < w; x += f2) {
-            doc.bezierCurveTo(
-                x + f2 * 0.25, y + amplitud,
-                x + f2 * 0.75, y - amplitud,
-                x + f2, y
-            );
-        }
-        doc.strokeColor(color, opacidad * 0.75).stroke();
-    }
-
-    doc.restore();
-};
 
 
 // Necesitamos 'fs' y 'path' para leer las imágenes de fondo
@@ -60,6 +11,12 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { enviarCorreoConAdjuntos, pdfDocABuffer } from '../services/mailService.js';
+import {
+    dibujarPatronOndas,
+    formatFechaDDMMYYYY,
+    addOneYearFormatted,
+    ajustarAUnaLinea,
+} from '../utils/pdfHelpers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -195,35 +152,6 @@ const obtenerHtmlCorreo = ({ nombre, tipoDocumento, numeroDocumento, intensidadH
 };
 
 // ──────────────────────────────────────────────────────────────────────────
-// Helpers de fecha
-// ──────────────────────────────────────────────────────────────────────────
-
-// Formatea una fecha (ISO, 'YYYY-MM-DD', Date, timestamp) a 'dd/mm/yyyy'.
-// Si no se provee o es inválida, usa la fecha ACTUAL (comportamiento previo).
-// Para strings ISO se toma la parte de fecha para evitar corrimientos por zona
-// horaria (que un timestamp a medianoche UTC pinte el día anterior).
-const formatFechaDDMMYYYY = (value) => {
-    if (value) {
-        const m = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
-        if (m) return `${m[3]}/${m[2]}/${m[1]}`;
-        const d = new Date(value);
-        if (!isNaN(d.getTime())) {
-            return d.toLocaleDateString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit' });
-        }
-    }
-    return new Date().toLocaleDateString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit' });
-};
-
-// Suma un año a la fecha de expedición y la formatea. Se usa para el vencimiento
-// del carnet cuando no viene una fecha de vencimiento explícita.
-const addOneYearFormatted = (value) => {
-    const m = value && String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (m) return `${m[3]}/${m[2]}/${Number(m[1]) + 1}`;
-    let base = value ? new Date(value) : new Date();
-    if (isNaN(base.getTime())) base = new Date();
-    base.setFullYear(base.getFullYear() + 1);
-    return base.toLocaleDateString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit' });
-};
 
 // ──────────────────────────────────────────────────────────────────────────
 // Funciones de DIBUJO reutilizables: dibujan sobre un doc PDFKit ya creado.
@@ -232,7 +160,8 @@ const addOneYearFormatted = (value) => {
 
 // Dibuja el contenido del CERTIFICADO sobre el doc.
 // fechaExpedicion es opcional; si falta, se usa la fecha actual.
-const dibujarCertificado = async (doc, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria, fechaExpedicion }) => {
+
+const dibujarCertificado = async (doc, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria, fechaExpedicion, curso }) => {
     const certificadoImagePath = path.join(__dirname, '..', 'imagenes', 'certificado.jpg');
     const certificadoImageBuffer = fs.readFileSync(certificadoImagePath);
 
@@ -252,6 +181,22 @@ const dibujarCertificado = async (doc, { nombre, numeroDocumento, tipoDocumento,
         align: 'center',
         width: doc.page.width,
     });
+
+    // Curso elegido en el Inventario. La plantilla (certificado.jpg) ya trae el
+    // cuerpo impreso, así que el único hueco libre es la franja entre la línea
+    // del documento (termina ~y=214) y el párrafo "Recibió capacitación en
+    // (BPM)…" (arranca ~y=248). Debe caber en UNA línea: si se desborda invade
+    // el párrafo. Ojo: la opción `ellipsis` de pdfkit no aplica con
+    // `lineBreak: false`, por eso el ajuste se mide a mano.
+    if (curso) {
+        const { texto, size } = ajustarAUnaLinea(doc, String(curso).trim(), doc.page.width - 80);
+        doc.font('Helvetica-Bold').fontSize(size).text(texto, 0, 222, {
+            align: 'center',
+            width: doc.page.width,
+            lineBreak: false,
+        });
+        doc.font('Helvetica'); // el resto del certificado va en regular
+    }
 
     doc.fontSize(14).text(fechaExp, -80, 328, {
         align: 'center',
@@ -340,7 +285,7 @@ const dibujarCarnet = async (doc, { nombre, numeroDocumento, tipoDocumento, inte
 // Controlador para generar un CERTIFICADO
 // //////////////////////////////////////////////////////////////////////////////////
 const generarCertificadoController = async (req, res) => {
-    const { nombre, numeroDocumento, tipoDocumento, intensidadHoraria } = req.body;
+    const { nombre, numeroDocumento, tipoDocumento, intensidadHoraria, curso } = req.body;
 
     if (!nombre || !numeroDocumento || !tipoDocumento) {
         return res.status(400).json({ error: 'Nombre, número de documento y tipo de documento son requeridos.' });
@@ -360,7 +305,7 @@ const generarCertificadoController = async (req, res) => {
 
         doc.pipe(res);
 
-        await dibujarCertificado(doc, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria, fechaExpedicion: req.body.fechaExpedicion });
+        await dibujarCertificado(doc, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria, fechaExpedicion: req.body.fechaExpedicion, curso });
 
         doc.end();
 

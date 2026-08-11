@@ -50,6 +50,9 @@ const ALLOWED_ORIGINS = [
 
 app.use(cors({
     credentials: true,
+    // Sin esto el navegador no deja leer X-Folio desde fetch(): las cabeceras
+    // personalizadas quedan ocultas en respuestas cross-origin.
+    exposedHeaders: ['X-Folio'],
     origin: (origin, callback) => {
         // Permite requests sin origin (Postman, mobile apps, same-origin)
         if (!origin || ALLOWED_ORIGINS.includes(origin)) {

@@ -13,6 +13,12 @@ import {
 
 import { generarCertificadoPDF } from '../controllers/certificadosPdfController.js';
 
+import {
+    generarDiplomaController,
+    generarConstanciaController,
+    generarAcreditacionController
+} from '../controllers/diplomaController.js';
+
 const router = Router();
 
 // Configuración de multer para que guarde los archivos en la carpeta 'uploads/'
@@ -31,6 +37,14 @@ router.post(
 );
 
 router.post('/generar-certificado-pdf', generarCertificadoPDF);
+
+// --- Plantilla Diploma + Constancia (Alianza Capacitarte) ---
+// Las dos piezas en un solo PDF (pág. 1 diploma, pág. 2 certificado) y con un
+// folio compartido. Es la que usa el front.
+router.post('/generar-acreditacion', generarAcreditacionController);
+// Piezas sueltas, por si se necesita una sola. Cada una genera su propio folio.
+router.post('/generar-diploma', generarDiplomaController);
+router.post('/generar-constancia', generarConstanciaController);
 
 // --- Envío por correo (genera el PDF y lo manda como adjunto) ---
 router.post('/enviar-certificado', enviarCertificadoController);
