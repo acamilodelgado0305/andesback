@@ -572,7 +572,7 @@ export const updateEstadoPagoController = async (req, res) => {
                     const htmlContent = `
                         <h1>Pago Confirmado</h1>
                         <p>Hola ${nombre} ${apellido},</p>
-                        <p>Hemos recibido tu pago de <strong>$${parseFloat(payment.monto).toLocaleString()}</strong>.</p>
+                        <p>Hemos recibido tu pago de <strong>$${parseFloat(payment.monto).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>.</p>
                         <p>Estado: ${estado}</p>
                     `;
 
