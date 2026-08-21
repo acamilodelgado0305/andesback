@@ -35,10 +35,19 @@ export const verificarConexionCorreo = () => getTransporter().verify();
  * @param {string} opts.html
  * @param {Array<{filename: string, content: Buffer}>} opts.adjuntos
  */
-export const enviarCorreoConAdjuntos = ({ to, subject, html, adjuntos = [] }) => {
+export const enviarCorreoConAdjuntos = async ({ to, subject, html, adjuntos = [] }) => {
     const fromName = process.env.MAIL_FROM_NAME || 'RapiCtrl';
-    return getTransporter().sendMail({
-        from: `"${fromName}" <${process.env.MAIL_USER}>`,
+
+    // La dirección del remitente se configura aparte del usuario SMTP: en los
+    // proveedores transaccionales el usuario NO es una dirección de correo
+    // (Resend usa literalmente "resend", Brevo un id tipo 8a1b2c001@smtp-brevo.com).
+    // Si se usa MAIL_USER como `from` con esos proveedores, el envío se rechaza.
+    // Sin MAIL_FROM_ADDRESS cae a MAIL_USER, que es el comportamiento de siempre
+    // con el SMTP de Hostinger.
+    const fromAddress = process.env.MAIL_FROM_ADDRESS || process.env.MAIL_USER;
+
+    const info = await getTransporter().sendMail({
+        from: `"${fromName}" <${fromAddress}>`,
         to,
         subject,
         html,
@@ -48,6 +57,11 @@ export const enviarCorreoConAdjuntos = ({ to, subject, html, adjuntos = [] }) =>
             contentType: 'application/pdf',
         })),
     });
+
+    // El id del proveedor es lo que permite rastrear un envío concreto en su
+    // panel cuando alguien reclama que "no le llegó".
+    console.log(`[MAIL] enviado a ${to} | messageId=${info.messageId} | respuesta=${info.response}`);
+    return info;
 };
 
 /** Convierte un documento PDFKit (stream) en un Buffer en memoria. Llama internamente a doc.end(). */

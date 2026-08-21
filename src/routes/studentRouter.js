@@ -22,6 +22,8 @@ import {
   uploadStudentCertificadoController,
   getStudentCertificadosController,
   deleteStudentCertificadoController,
+  uploadStudentFotoController,
+  deleteStudentFotoController,
   getStudentCertificadosByDocumentController,
   bulkMoveToPrograma,
   getStudentCommentsController,
@@ -37,7 +39,7 @@ import { authMiddleware } from '../middlewares/authMiddleware.js';
 import { uploadStudentsController } from "../controllers/uploadStudentsController.js";
 import upload from "../uploadMiddleware.js";
 
-import uploadStudentDocument from '../middlewares/uploadStudentDocumentMiddleware.js';
+import uploadStudentDocument, { uploadStudentFoto } from '../middlewares/uploadStudentDocumentMiddleware.js';
 
 const router = express.Router();
 
@@ -126,6 +128,17 @@ router.post(
 router.get("/students/:id/documents", getStudentDocumentsController);
 // routes/studentRoutes.js
 router.delete("/students/:studentId/documents/:documentId", deleteStudentDocumentController);
+
+// =======================================================
+// FOTO DE PERFIL DEL ESTUDIANTE (imagen, la sube el admin)
+// =======================================================
+router.post(
+  "/students/:id/foto",
+  authMiddleware,
+  uploadStudentFoto.single("foto"),
+  uploadStudentFotoController
+);
+router.delete("/students/:id/foto", authMiddleware, deleteStudentFotoController);
 
 // =======================================================
 // CERTIFICADOS DEL ESTUDIANTE (varios PDFs por estudiante) — admin

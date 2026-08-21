@@ -424,6 +424,7 @@ export const getStudentByIdController = async (req, res) => {
       rh: flatStudent.rh,
       business_id: flatStudent.business_id,
       documento_url: flatStudent.documento,
+      foto_url: flatStudent.foto_url ?? null,
       created_at: flatStudent.created_at,
       updated_at: flatStudent.updated_at,
       posible_graduacion: flatStudent.posible_graduacion,
@@ -532,6 +533,7 @@ const getStudentByDocumentController = async (req, res) => {
       rh: flatStudent.rh,
       business_id: flatStudent.business_id,
       documento_url: flatStudent.documento,
+      foto_url: flatStudent.foto_url ?? null,
       created_at: flatStudent.created_at,
       updated_at: flatStudent.updated_at,
       posible_graduacion: flatStudent.posible_graduacion,
@@ -1329,6 +1331,98 @@ export const deleteStudentDocumentController = async (req, res) => {
     return res.status(500).json({
       error: "Error interno del servidor al eliminar el documento.",
     });
+  }
+};
+
+// =======================================================
+// FOTO DE PERFIL DEL ESTUDIANTE
+// La sube el admin (imagen JPG/PNG/WebP); se guarda en GCS y la URL
+// queda en students.foto_url para mostrarla en el perfil del estudiante.
+// =======================================================
+
+// ADMIN: Subir o reemplazar la foto de perfil del estudiante
+export const uploadStudentFotoController = async (req, res) => {
+  const { id } = req.params;
+
+  if (!id || isNaN(id)) {
+    return res.status(400).json({ error: "ID de estudiante inválido o no proporcionado." });
+  }
+  if (!req.file) {
+    return res.status(400).json({ error: "No se envió ninguna imagen." });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      "SELECT foto_gcs_path FROM students WHERE id = $1",
+      [id]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Estudiante no encontrado." });
+    }
+
+    const { buffer, originalname, mimetype } = req.file;
+    const { publicUrl, gcsPath } = await uploadStudentDocumentToGCS(buffer, {
+      filename: originalname,
+      mimetype,
+      studentId: id,
+    });
+
+    // Borrar la foto anterior de GCS (si había); si falla, no bloquea el reemplazo.
+    if (rows[0].foto_gcs_path) {
+      await deleteStudentDocumentFromGCS(rows[0].foto_gcs_path).catch((e) =>
+        console.warn("[GCS] No se pudo eliminar la foto anterior:", e.message)
+      );
+    }
+
+    await pool.query(
+      `UPDATE students
+       SET foto_url = $1, foto_gcs_path = $2, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $3`,
+      [publicUrl, gcsPath, id]
+    );
+
+    return res.status(200).json({
+      message: "Foto de perfil actualizada correctamente.",
+      foto_url: publicUrl,
+    });
+  } catch (err) {
+    handleServerError(res, err, "Error interno del servidor al subir la foto de perfil.");
+  }
+};
+
+// ADMIN: Eliminar la foto de perfil del estudiante
+export const deleteStudentFotoController = async (req, res) => {
+  const { id } = req.params;
+
+  if (!id || isNaN(id)) {
+    return res.status(400).json({ error: "ID de estudiante inválido o no proporcionado." });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      "SELECT foto_gcs_path FROM students WHERE id = $1",
+      [id]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Estudiante no encontrado." });
+    }
+
+    if (rows[0].foto_gcs_path) {
+      await deleteStudentDocumentFromGCS(rows[0].foto_gcs_path).catch((e) =>
+        console.warn("[GCS] No se pudo eliminar la foto:", e.message)
+      );
+    }
+
+    await pool.query(
+      `UPDATE students
+       SET foto_url = NULL, foto_gcs_path = NULL, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [id]
+    );
+
+    return res.status(200).json({ message: "Foto de perfil eliminada correctamente." });
+  } catch (err) {
+    handleServerError(res, err, "Error interno del servidor al eliminar la foto de perfil.");
   }
 };
 

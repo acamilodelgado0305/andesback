@@ -18,4 +18,21 @@ const uploadStudentDocument = multer({
   },
 });
 
+// Foto de perfil del estudiante: solo imágenes, más liviana que un documento.
+const imageFileFilter = (req, file, cb) => {
+  const allowed = ["image/jpeg", "image/png", "image/webp"];
+  if (!allowed.includes(file.mimetype)) {
+    return cb(new Error("Solo se permiten imágenes JPG, PNG o WebP."), false);
+  }
+  cb(null, true);
+};
+
+export const uploadStudentFoto = multer({
+  storage,
+  fileFilter: imageFileFilter,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5 MB
+  },
+});
+
 export default uploadStudentDocument;

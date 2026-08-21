@@ -165,6 +165,12 @@ const runMigrations = async () => {
       CREATE INDEX IF NOT EXISTS idx_student_certificados_student
         ON public.student_certificados(student_id);
     `);
+    // Foto de perfil del estudiante (la sube el admin, se guarda en GCS).
+    await pool.query(`
+      ALTER TABLE public.students
+        ADD COLUMN IF NOT EXISTS foto_url      TEXT,
+        ADD COLUMN IF NOT EXISTS foto_gcs_path TEXT;
+    `);
     // Intensidad horaria del programa (horas teórico-prácticas) que se imprime en
     // el diploma que se genera al graduar al estudiante.
     await pool.query(`
