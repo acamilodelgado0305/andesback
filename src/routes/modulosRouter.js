@@ -9,6 +9,7 @@ import {
   createModulo,
   updateModulo,
   deleteModulo,
+  duplicarModulo,
   uploadPdfsModulo,
   deletePdfDeModulo,
   addEvaluacionToModulo,
@@ -44,6 +45,9 @@ router.get('/modulos/:id', authMiddleware, getModuloById);
 router.post('/modulos',    authMiddleware, createModulo);
 router.put('/modulos/:id', authMiddleware, updateModulo);
 router.delete('/modulos/:id', authMiddleware, deleteModulo);
+
+// Duplicar el tema (copia profunda) en una o varias materias
+router.post('/modulos/:id/duplicar', authMiddleware, duplicarModulo);
 
 // PDFs del módulo (múltiples)
 router.post('/modulos/:id/pdfs', authMiddleware, uploadPdf.array('pdfs', 10), uploadPdfsModulo);

@@ -1,6 +1,7 @@
 // src/controllers/modulosController.js
 import pool from '../database.js';
 import { uploadModuloPdfToGCS, deleteModuloPdfFromGCS } from '../services/gcsModuloPdfs.js';
+import { clonarModuloEnMateria } from '../services/duplicarContenido.js';
 
 // ─── ADMIN: Listar módulos del negocio ───────────────────────────────────────
 export const getModulos = async (req, res) => {
@@ -480,5 +481,106 @@ export const getModuloDetalleEstudiante = async (req, res) => {
   } catch (err) {
     console.error('getModuloDetalleEstudiante:', err);
     res.status(500).json({ ok: false, error: 'Error al obtener módulo.' });
+  }
+};
+
+// ─── ADMIN: Duplicar tema en una o varias materias ───────────────────────────
+// Copia profunda del tema (clases, videos, PDFs, presentaciones y sus exámenes)
+// dentro de cada materia destino, que puede estar en OTRO programa. El motor de
+// copia es el mismo que usa "duplicar materia" (services/duplicarContenido.js).
+// El tema copiado se agrega al FINAL de la materia destino.
+export const duplicarModulo = async (req, res) => {
+  const businessId = req.user?.bid;
+  const { id } = req.params;
+  const { materia_id_destino, materia_ids_destino } = req.body;
+
+  if (!businessId) return res.status(403).json({ ok: false, error: 'Sin negocio.' });
+
+  // Acepta una materia destino suelta o varias: se hace una copia por materia.
+  const crudos = Array.isArray(materia_ids_destino) && materia_ids_destino.length
+    ? materia_ids_destino
+    : [materia_id_destino];
+  const destinos = [...new Set(
+    crudos
+      .filter((v) => v !== undefined && v !== null && v !== '')
+      .map((v) => Number(v))
+      .filter((v) => Number.isFinite(v))
+  )];
+
+  if (!destinos.length) {
+    return res.status(400).json({ ok: false, error: 'Debes indicar al menos una materia destino.' });
+  }
+
+  const client = await pool.connect();
+  try {
+    // Tema origen (scopeado por negocio)
+    const { rows: modRows } = await client.query(
+      'SELECT * FROM modulos WHERE id = $1 AND business_id = $2',
+      [id, businessId]
+    );
+    if (!modRows.length) return res.status(404).json({ ok: false, error: 'Tema no encontrado.' });
+    const modulo = modRows[0];
+
+    // Materias destino: todas deben existir y pertenecer al mismo negocio.
+    // Se trae también el programa de cada una: el tema copiado hereda ese programa_id.
+    const { rows: matRows } = await client.query(
+      `SELECT m.id, m.nombre, m.programa_id, p.nombre AS programa_nombre
+         FROM materias m
+         LEFT JOIN programas p ON p.id = m.programa_id
+        WHERE m.id = ANY($1::int[]) AND m.business_id = $2`,
+      [destinos, businessId]
+    );
+    const matsValidas = new Map(matRows.map((m) => [Number(m.id), m]));
+    const invalidas = destinos.filter((d) => !matsValidas.has(d));
+    if (invalidas.length) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Alguna de las materias destino no existe o no pertenece a tu negocio.',
+      });
+    }
+
+    // Una transacción por destino: si una copia falla, las demás se conservan.
+    const creados = [];
+    const fallidas = [];
+    for (const materiaDestinoId of destinos) {
+      const destino = matsValidas.get(materiaDestinoId);
+      try {
+        await client.query('BEGIN');
+        const newModuloId = await clonarModuloEnMateria(client, {
+          modulo,
+          businessId,
+          materiaDestinoId,
+          programaDestinoId: destino.programa_id,
+        });
+        await client.query('COMMIT');
+        creados.push({
+          modulo_id: newModuloId,
+          materia_id: materiaDestinoId,
+          materia_nombre: destino.nombre,
+          programa_id: destino.programa_id,
+          programa_nombre: destino.programa_nombre,
+        });
+      } catch (e) {
+        await client.query('ROLLBACK').catch(() => {});
+        console.error(`duplicarModulo: falló el tema ${id} → materia ${materiaDestinoId}:`, e);
+        fallidas.push({
+          materia_id: materiaDestinoId,
+          materia_nombre: destino.nombre,
+          programa_nombre: destino.programa_nombre,
+        });
+      }
+    }
+
+    if (!creados.length) {
+      return res.status(500).json({ ok: false, error: 'Error al duplicar el tema.', fallidas });
+    }
+
+    return res.status(201).json({ ok: true, modulos: creados, fallidas });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('duplicarModulo:', err);
+    return res.status(500).json({ ok: false, error: 'Error al duplicar el tema.' });
+  } finally {
+    client.release();
   }
 };
