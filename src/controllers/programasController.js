@@ -986,26 +986,33 @@ export const getAvanceEstudiante = async (req, res) => {
 
     // Clases accesibles del estudiante, en el mismo orden en que las ve dentro
     // de la materia (tema → clase), con su estado.
+    //
+    // Solo se cuentan las clases de temas que cuelgan de una MATERIA: el portal
+    // del estudiante navega programa → materia → tema → clase, así que un tema
+    // colgado directo del programa (materia_id NULL, contenido viejo) no tiene
+    // ninguna pantalla desde donde abrirse. Si se contaran, el estudiante que ya
+    // terminó todas sus materias seguiría viendo "te faltan N clases" sin forma
+    // de completarlas. Siguen visibles para el admin en /programas/:id/progreso.
     const { rows: claseRows } = await client.query(
-      `SELECT COALESCE(mat.programa_id, m.programa_id) AS programa_id,
+      `SELECT mat.programa_id AS programa_id,
               p.nombre AS programa_nombre,
               mat.id AS materia_id,
-              COALESCE(mat.nombre, 'General') AS materia_nombre,
+              mat.nombre AS materia_nombre,
               m.id AS modulo_id, m.titulo AS modulo_titulo,
               c.id AS clase_id, c.titulo AS clase_titulo,
               COALESCE(ec.estado, 'pendiente') AS estado,
               ec.fecha_completado
        FROM estudiante_modulos em
        JOIN modulos m ON m.id = em.modulo_id AND m.activa = true
-       LEFT JOIN materias mat ON mat.id = m.materia_id
-       LEFT JOIN programas p ON p.id = COALESCE(mat.programa_id, m.programa_id)
+       JOIN materias mat ON mat.id = m.materia_id
+       LEFT JOIN programas p ON p.id = mat.programa_id
        JOIN clases c ON c.modulo_id = m.id AND c.activa = true
        LEFT JOIN estudiante_clases ec ON ec.clase_id = c.id AND ec.estudiante_id = $1
        WHERE em.estudiante_id = $1
          AND EXISTS (
            SELECT 1 FROM estudiante_programas ep
            WHERE ep.estudiante_id = $1
-             AND ep.programa_id = COALESCE(mat.programa_id, m.programa_id)
+             AND ep.programa_id = mat.programa_id
          )
        ORDER BY p.nombre ASC, mat.nombre ASC NULLS FIRST,
                 m.orden ASC, m.created_at ASC, c.orden ASC, c.created_at ASC`,
@@ -1014,13 +1021,21 @@ export const getAvanceEstudiante = async (req, res) => {
 
     // Evaluaciones vigentes del estudiante (mismo filtro de fechas que usa su
     // listado de evaluaciones) con la materia/programa al que pertenecen.
+    //
+    // Igual que con las clases: solo entran las evaluaciones que el estudiante
+    // puede abrir, es decir las que pertenecen a una materia (directamente o a
+    // través del tema al que están vinculadas). Una evaluación colgada solo del
+    // programa no se muestra en ninguna pantalla del portal, así que tampoco
+    // debe contar como pendiente.
     const { rows: evalRows } = await client.query(
       `SELECT ea.id AS asignacion_id, ea.estado, ea.calificacion, ea.fecha_resuelto,
               e.id AS evaluacion_id, e.titulo, e.descripcion, e.fecha_fin,
-              e.materia_id, mat.nombre AS materia_nombre,
+              COALESCE(e.materia_id, mev.materia_id) AS materia_id,
+              COALESCE(mat.nombre, mev.materia_nombre) AS materia_nombre,
               mev.modulo_id,
               COALESCE(
                 mat.programa_id,
+                mev.programa_id,
                 e.programa_id,
                 (SELECT epr.programa_id
                    FROM public.evaluacion_programas epr
@@ -1033,10 +1048,15 @@ export const getAvanceEstudiante = async (req, res) => {
        JOIN public.evaluaciones e ON e.id = ea.evaluacion_id AND e.activa = TRUE
        LEFT JOIN public.materias mat ON mat.id = e.materia_id
        LEFT JOIN LATERAL (
-         SELECT me.modulo_id FROM public.modulo_evaluaciones me
+         SELECT me.modulo_id, m2.materia_id,
+                mat2.nombre AS materia_nombre, mat2.programa_id
+         FROM public.modulo_evaluaciones me
+         LEFT JOIN public.modulos m2 ON m2.id = me.modulo_id
+         LEFT JOIN public.materias mat2 ON mat2.id = m2.materia_id
          WHERE me.evaluacion_id = e.id LIMIT 1
        ) mev ON TRUE
        WHERE ea.estudiante_id = $1
+         AND COALESCE(e.materia_id, mev.materia_id) IS NOT NULL
          AND (e.fecha_inicio IS NULL OR e.fecha_inicio <= NOW())
          AND (e.fecha_fin IS NULL OR e.fecha_fin >= NOW())
        ORDER BY e.titulo ASC`,
