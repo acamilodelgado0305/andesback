@@ -32,6 +32,8 @@ import {
   deleteStudentCommentController,
 } from '../controllers/studentController.js';
 
+import { getStudentDocumentosAdmin } from '../controllers/studentSelfController.js';
+
 import { authMiddleware } from '../middlewares/authMiddleware.js';
 
 
@@ -128,6 +130,10 @@ router.post(
 router.get("/students/:id/documents", getStudentDocumentsController);
 // routes/studentRoutes.js
 router.delete("/students/:studentId/documents/:documentId", deleteStudentDocumentController);
+
+// GET: documentos que el propio ESTUDIANTE cargó desde su portal (solo lectura
+// para el admin; el estudiante los administra en /api/student-portal/me/documentos)
+router.get("/students/:id/documentos", authMiddleware, getStudentDocumentosAdmin);
 
 // =======================================================
 // FOTO DE PERFIL DEL ESTUDIANTE (imagen, la sube el admin)

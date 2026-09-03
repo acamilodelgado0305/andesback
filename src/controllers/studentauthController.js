@@ -43,6 +43,7 @@ const fetchStudentPayload = async (studentId) => {
     `SELECT s.id, s.nombre, s.apellido,
             CAST(s.numero_documento AS TEXT) AS documento,
             s.coordinador_id, s.activo, s.business_id,
+            s.tipo_documento, s.email, s.foto_url,
             COALESCE(b.name, 'Institución') AS business_name,
             COALESCE(
               json_agg(json_build_object(
@@ -56,7 +57,8 @@ const fetchStudentPayload = async (studentId) => {
        LEFT JOIN estudiante_programas ep ON s.id = ep.estudiante_id
        LEFT JOIN programas p ON ep.programa_id = p.id
       WHERE s.id = $1
-      GROUP BY s.id, s.nombre, s.apellido, s.numero_documento, s.coordinador_id, s.activo, s.business_id, b.name
+      GROUP BY s.id, s.nombre, s.apellido, s.numero_documento, s.coordinador_id, s.activo, s.business_id,
+               s.tipo_documento, s.email, s.foto_url, b.name
       LIMIT 1;`,
     [studentId]
   );
@@ -70,6 +72,11 @@ const buildStudentResponse = (s) => ({
   nombre_completo: `${s.nombre} ${s.apellido}`.trim(),
   documento: s.documento,
   coordinador_id: s.coordinador_id,
+  tipo_documento: s.tipo_documento,
+  email: s.email,
+  // La foto la sube el propio estudiante desde su portal (o el admin desde el
+  // panel); el portal la usa en el avatar del encabezado.
+  foto_url: s.foto_url,
   activo: s.activo,
   business_id: s.business_id,
   business_name: s.business_name,

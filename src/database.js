@@ -165,6 +165,26 @@ const runMigrations = async () => {
       CREATE INDEX IF NOT EXISTS idx_student_certificados_student
         ON public.student_certificados(student_id);
     `);
+    // Documentos (PDF) que el ESTUDIANTE sube desde su propio portal (cédula,
+    // diploma, certificado de EPS...). Van aparte de student_certificados, que
+    // son los que emite la institución. Ver migration_student_documentos.sql.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS public.student_documentos (
+        id           SERIAL PRIMARY KEY,
+        student_id   INTEGER NOT NULL REFERENCES public.students(id) ON DELETE CASCADE,
+        business_id  INTEGER,
+        nombre       VARCHAR(255),
+        tipo         VARCHAR(60),
+        url          TEXT,
+        gcs_path     TEXT,
+        subido_por   VARCHAR(20) NOT NULL DEFAULT 'estudiante',
+        created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_student_documentos_student
+        ON public.student_documentos(student_id);
+    `);
     // Foto de perfil del estudiante (la sube el admin, se guarda en GCS).
     await pool.query(`
       ALTER TABLE public.students
