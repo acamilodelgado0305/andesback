@@ -20,6 +20,8 @@ import {
     partesFechaLarga,
     ajustarAUnaLinea,
 } from '../utils/pdfHelpers.js';
+import { plantillaCorreoDocumentos } from '../utils/correoDocumentos.js';
+import { enviarCorreoConAdjuntos, pdfDocABuffer } from '../services/mailService.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const IMG = (nombre) => path.join(__dirname, '..', 'imagenes', nombre);
@@ -367,6 +369,18 @@ const datosDesde = (body, folio = generarFolio()) => ({
     folio,
 });
 
+// Pinta la acreditación completa sobre un doc PDFKit ya creado en tamaño carta
+// apaisada: página 1 el diploma, página 2 el certificado. NO hace pipe ni end —
+// eso queda del lado de quien la llama (descarga directa o adjunto de correo).
+const dibujarAcreditacion = async (doc, datos) => {
+    await dibujarDiploma(doc, datos);
+    doc.addPage({ size: 'A4', margin: 0 });
+    await dibujarConstancia(doc, datos);
+};
+
+const nombreArchivoAcreditacion = (nombre, numeroDocumento) =>
+    `Acreditacion_${String(nombre).replace(/\s/g, '_')}_${numeroDocumento}.pdf`;
+
 const generarDiplomaController = async (req, res) => {
     const error = validar(req.body);
     if (error) return res.status(400).json({ error });
@@ -437,16 +451,14 @@ const generarAcreditacionController = async (req, res) => {
         const datos = datosDesde(req.body, folio);
 
         res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename="Acreditacion_${String(nombre).replace(/\s/g, '_')}_${numeroDocumento}.pdf"`);
+        res.setHeader('Content-Disposition', `attachment; filename="${nombreArchivoAcreditacion(nombre, numeroDocumento)}"`);
         // El front lo muestra al usuario para que quede registrado el folio asignado.
         res.setHeader('X-Folio', folio);
 
         const doc = new PDFDocument({ size: [720, 540], margin: 0 });
         doc.pipe(res);
 
-        await dibujarDiploma(doc, datos);
-        doc.addPage({ size: 'A4', margin: 0 });
-        await dibujarConstancia(doc, datos);
+        await dibujarAcreditacion(doc, datos);
 
         doc.end();
 
@@ -459,10 +471,99 @@ const generarAcreditacionController = async (req, res) => {
     }
 };
 
+// ──────────────────────────────────────────────────────────────────────────
+// Envío por correo
+// ──────────────────────────────────────────────────────────────────────────
+
+// Texto del correo con el que se entrega la acreditación. A diferencia del de
+// manipulación de alimentos (plantilla de un solo curso), aquí el curso es
+// variable, así que encabeza el correo y aparece en el detalle del registro.
+const htmlCorreoAcreditacion = ({ nombre, tipoDocumento, numeroDocumento, curso, intensidadHoraria, folio }) => {
+    const detalles = [
+        { label: 'Estudiante', valor: nombre },
+        { label: 'Identificación', valor: `${tipoDocumento} ${numeroDocumento}` },
+        { label: 'Curso', valor: curso },
+    ];
+    if (intensidadHoraria) detalles.push({ label: 'Intensidad Horaria', valor: `${intensidadHoraria} horas` });
+    detalles.push({ label: 'Registro', valor: `Libro ${INSTITUCION.libro} · Folio ${folio}` });
+
+    return plantillaCorreoDocumentos({
+        nombre,
+        titulo: curso,
+        subtitulo: 'Acreditación y Documentos Oficiales',
+        introduccion: `¡Felicitaciones! 🎉 Has completado satisfactoriamente el <strong>${curso}</strong>. Adjunto a este correo encontrarás tu <strong>acreditación oficial</strong> en formato PDF:`,
+        documentos: [
+            {
+                icono: '🎓',
+                titulo: 'Diploma',
+                detalle: 'Página 1 del PDF. Acredita la asistencia y aprobación del curso.',
+            },
+            {
+                icono: '📜',
+                titulo: 'Certificado',
+                detalle: `Página 2 del PDF. Registrado en el libro de constancias No ${INSTITUCION.libro}, folio ${folio}.`,
+            },
+        ],
+        detalles,
+        nota: '* Las dos piezas viajan en un mismo archivo PDF y cuentan con sello, firma y un código QR de autenticidad verificable.',
+    });
+};
+
+// Genera la acreditación y la manda como adjunto. Es el equivalente de
+// /enviar-documentos (manipulación de alimentos) para la plantilla de diploma:
+// mismo contrato de entrada (nombre, documento, email…) más el `curso`, que aquí
+// sí es obligatorio porque la plantilla sirve para cualquier programa.
+const enviarAcreditacionController = async (req, res) => {
+    const error = validar(req.body);
+    if (error) return res.status(400).json({ error });
+
+    const { nombre, numeroDocumento, tipoDocumento, curso, intensidadHoraria, email } = req.body;
+    if (!email) {
+        return res.status(400).json({ error: 'El correo del destinatario (email) es requerido.' });
+    }
+
+    try {
+        const folio = generarFolio();
+        const datos = datosDesde(req.body, folio);
+
+        const doc = new PDFDocument({ size: [720, 540], margin: 0 });
+        await dibujarAcreditacion(doc, datos);
+        const pdfBuffer = await pdfDocABuffer(doc);
+
+        await enviarCorreoConAdjuntos({
+            to: email,
+            subject: `Tu diploma y certificado — ${curso}`,
+            html: htmlCorreoAcreditacion({
+                nombre,
+                tipoDocumento,
+                numeroDocumento,
+                curso,
+                intensidadHoraria: intensidadHoraria || datos.intensidadHoraria,
+                folio,
+            }),
+            adjuntos: [{
+                filename: nombreArchivoAcreditacion(nombre, numeroDocumento),
+                content: pdfBuffer,
+            }],
+        });
+
+        console.log(`Acreditación enviada por correo a ${email} para: ${nombre} — folio ${folio}`);
+        res.status(200).json({ mensaje: 'Acreditación enviada por correo correctamente.', email, folio });
+    } catch (err) {
+        console.error('Error al enviar la acreditación por correo:', err);
+        res.status(500).json({
+            error: 'Error interno del servidor al enviar la acreditación.',
+            details: err.message,
+        });
+    }
+};
+
 export {
     dibujarDiploma,
     dibujarConstancia,
+    dibujarAcreditacion,
     generarDiplomaController,
     generarConstanciaController,
     generarAcreditacionController,
+    enviarAcreditacionController,
 };

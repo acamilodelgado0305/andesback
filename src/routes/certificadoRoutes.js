@@ -16,7 +16,8 @@ import { generarCertificadoPDF } from '../controllers/certificadosPdfController.
 import {
     generarDiplomaController,
     generarConstanciaController,
-    generarAcreditacionController
+    generarAcreditacionController,
+    enviarAcreditacionController
 } from '../controllers/diplomaController.js';
 
 const router = Router();
@@ -54,6 +55,11 @@ router.post(
     upload.single('foto'),
     enviarCarnetController
 );
+
+// Envía la ACREDITACIÓN (diploma + certificado, un solo PDF de dos páginas).
+// Es el envío por correo de la plantilla de Alianza Capacitarte: sirve para
+// cualquier curso (Auxiliar de Bodega, Aseo Hospitalario…), por eso pide `curso`.
+router.post('/enviar-acreditacion', enviarAcreditacionController);
 
 // Envía CERTIFICADO + CARNET en un solo correo (un solo endpoint)
 router.post(
