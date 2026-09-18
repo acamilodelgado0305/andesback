@@ -35,7 +35,6 @@ const INSTITUCION = {
     // automático (UUID) por acreditación, así que esto cambia rara vez.
     libro: '010',
     representante: 'Sandra Milena Mazo',
-    tarjetaProfesional: '25-3163',
     telefono: '3012307470',
     correo: 'alianzapacitarte@gmail.com',
     ciudad: 'Medellín',
@@ -163,7 +162,7 @@ const dibujarDiploma = async (doc, datos) => {
     doc.font('Helvetica-Bold').fontSize(14).fillColor('black')
         .text(`${INSTITUCION.representante} NIT ${INSTITUCION.nit}`, 44, 476, { width: 650, align: 'center' })
         .text('Representante Legal', 44, 493, { width: 650, align: 'center' })
-        .text(`Capacitador  TP: ${INSTITUCION.tarjetaProfesional}`, 44, 510, { width: 650, align: 'center' });
+        .text('Capacitador', 44, 510, { width: 650, align: 'center' });
 
     dibujarPatronOndas(doc, { espaciado: 11, amplitud: 3.5, opacidad: 0.04 });
 
@@ -321,7 +320,7 @@ const dibujarConstancia = async (doc, datos) => {
     doc.font('Helvetica-Bold').fontSize(11).fillColor('#111827')
         .text(INSTITUCION.representante.toUpperCase(), MX, yFirma + 66, { width: ANCHO, align: 'center' });
     doc.font('Helvetica').fontSize(9).fillColor('#4b5563')
-        .text(`NIT ${INSTITUCION.nit}  ·  Representante Legal  ·  TP ${INSTITUCION.tarjetaProfesional}`, MX, yFirma + 81, { width: ANCHO, align: 'center' });
+        .text(`NIT ${INSTITUCION.nit}  ·  Representante Legal`, MX, yFirma + 81, { width: ANCHO, align: 'center' });
 
     // Sello a la izquierda y QR de verificación a la derecha
     doc.image(fs.readFileSync(IMG('sello.png')), MX, yFirma + 6, { width: 78, height: 78 });
