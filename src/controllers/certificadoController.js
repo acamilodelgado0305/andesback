@@ -16,7 +16,13 @@ import {
     formatFechaDDMMYYYY,
     addOneYearFormatted,
     ajustarAUnaLinea,
+    dibujarQrConCodigo,
 } from '../utils/pdfHelpers.js';
+import {
+    PLANTILLA_ALIMENTOS,
+    registrarDocumento,
+    urlVerificacion,
+} from '../services/documentosEmitidos.js';
 import { plantillaCorreoDocumentos } from '../utils/correoDocumentos.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -79,7 +85,7 @@ const obtenerHtmlCorreo = ({ nombre, tipoDocumento, numeroDocumento, intensidadH
 // Dibuja el contenido del CERTIFICADO sobre el doc.
 // fechaExpedicion es opcional; si falta, se usa la fecha actual.
 
-const dibujarCertificado = async (doc, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria, fechaExpedicion, curso }) => {
+const dibujarCertificado = async (doc, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria, fechaExpedicion, curso, codigo }) => {
     const certificadoImagePath = path.join(__dirname, '..', 'imagenes', 'certificado.jpg');
     const certificadoImageBuffer = fs.readFileSync(certificadoImagePath);
 
@@ -131,14 +137,14 @@ const dibujarCertificado = async (doc, { nombre, numeroDocumento, tipoDocumento,
         width: doc.page.width,
     });
 
-    const urlVerificacion = 'https://www.alianzacapacitarte.com/verificacion.html';
-    const qrCodeImage = await QRCode.toDataURL(urlVerificacion, {
+    // El QR abre la verificación de ESTE documento; debajo va su código.
+    const qrCodeImage = await QRCode.toDataURL(urlVerificacion(codigo), {
         errorCorrectionLevel: 'H',
         margin: 2,
         scale: 4,
     });
 
-    doc.image(qrCodeImage, 475, 720, { width: 80 });
+    dibujarQrConCodigo(doc, { qrImage: qrCodeImage, codigo, x: 475, y: 720, size: 80, fontSize: 7 });
 
     // Patrón de seguridad anti-copia (encima de todo el contenido)
     dibujarPatronOndas(doc);
@@ -148,7 +154,7 @@ const dibujarCertificado = async (doc, { nombre, numeroDocumento, tipoDocumento,
 // fotoBuffer es opcional (Buffer de la foto del estudiante).
 // fechaExpedicion / fechaVencimiento son opcionales; si faltan se usa la fecha
 // actual (expedición) y expedición + 1 año (vencimiento).
-const dibujarCarnet = async (doc, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria, fechaExpedicion, fechaVencimiento }, fotoBuffer) => {
+const dibujarCarnet = async (doc, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria, fechaExpedicion, fechaVencimiento, codigo }, fotoBuffer) => {
     const frontalImagePath = path.join(__dirname, '..', 'imagenes', 'frontal.jpg');
     const posteriorImagePath = path.join(__dirname, '..', 'imagenes', 'posterior.jpg');
     const frontalImageBuffer = fs.readFileSync(frontalImagePath);
@@ -183,14 +189,13 @@ const dibujarCarnet = async (doc, { nombre, numeroDocumento, tipoDocumento, inte
         : addOneYearFormatted(fechaExpedicion);
     doc.fillColor('black').fontSize(7).text(fechaVenc, 33, 137, { width: 100, align: 'left' });
 
-    const urlVerificacion = 'https://www.alianzacapacitarte.com/verificacion.html';
-    const qrCodeImage = await QRCode.toDataURL(urlVerificacion, {
+    const qrCodeImage = await QRCode.toDataURL(urlVerificacion(codigo), {
         errorCorrectionLevel: 'H',
         margin: 1,
         scale: 3,
     });
 
-    doc.image(qrCodeImage, 180, 25, { width: 40 });
+    dibujarQrConCodigo(doc, { qrImage: qrCodeImage, codigo, x: 180, y: 25, size: 40, fontSize: 4.2 });
 
     dibujarPatronOndas(doc, { amplitud: 2, frecuencia: 10, espaciado: 4.5, grosor: 0.3 });
 };
@@ -199,6 +204,20 @@ const dibujarCarnet = async (doc, { nombre, numeroDocumento, tipoDocumento, inte
 // ¡MUY IMPORTANTE! Reemplaza estas URLs con las que obtuviste al desplegar tus scripts.
 
 // URL para el script que genera CERTIFICADOS (YA NO LA USAREMOS PARA EL CERTIFICADO LOCAL)
+
+// Certificado y carnet son la misma acreditación: comparten código de
+// verificación (el registro se reutiliza por persona + fecha de expedición).
+const registrarAlimentos = (body, extra = {}) => registrarDocumento({
+    plantilla: PLANTILLA_ALIMENTOS,
+    nombre: body.nombre,
+    tipoDocumento: body.tipoDocumento,
+    numeroDocumento: body.numeroDocumento,
+    curso: body.curso, // el carnet no lo trae: el registro conserva el que ya tenía
+    intensidadHoraria: body.intensidadHoraria,
+    fechaExpedicion: body.fechaExpedicion,
+    fechaVencimiento: body.fechaVencimiento,
+    ...extra,
+});
 
 // Controlador para generar un CERTIFICADO
 // //////////////////////////////////////////////////////////////////////////////////
@@ -221,9 +240,12 @@ const generarCertificadoController = async (req, res) => {
             margin: 0,
         });
 
+        const codigo = await registrarAlimentos(req.body);
+        if (codigo) res.setHeader('X-Folio', codigo);
+
         doc.pipe(res);
 
-        await dibujarCertificado(doc, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria, fechaExpedicion: req.body.fechaExpedicion, curso });
+        await dibujarCertificado(doc, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria, fechaExpedicion: req.body.fechaExpedicion, curso, codigo });
 
         doc.end();
 
@@ -267,10 +289,13 @@ const generarCarnetController = async (req, res) => {
             margin: 0,
         });
 
+        const codigo = await registrarAlimentos(req.body);
+        if (codigo) res.setHeader('X-Folio', codigo);
+
         doc.pipe(res);
 
         const fotoBuffer = fotoFile ? fs.readFileSync(fotoFile.path) : null;
-        await dibujarCarnet(doc, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria, fechaExpedicion: req.body.fechaExpedicion, fechaVencimiento: req.body.fechaVencimiento }, fotoBuffer);
+        await dibujarCarnet(doc, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria, fechaExpedicion: req.body.fechaExpedicion, fechaVencimiento: req.body.fechaVencimiento, codigo }, fotoBuffer);
 
         doc.end();
         console.log(`Carnet PDF generado y enviado para: ${nombre}`);
@@ -306,8 +331,9 @@ const enviarCertificadoController = async (req, res) => {
     }
 
     try {
+        const codigo = await registrarAlimentos(req.body);
         const doc = new PDFDocument({ size: 'A4', margin: 0 });
-        await dibujarCertificado(doc, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria, fechaExpedicion: req.body.fechaExpedicion });
+        await dibujarCertificado(doc, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria, fechaExpedicion: req.body.fechaExpedicion, codigo });
         const pdfBuffer = await pdfDocABuffer(doc);
 
         const fileName = `Certificado_${nombre.replace(/\s/g, '_')}_${numeroDocumento}.pdf`;
@@ -345,9 +371,10 @@ const enviarCarnetController = async (req, res) => {
             return res.status(400).json({ error: 'El correo del destinatario (email) es requerido.' });
         }
 
+        const codigo = await registrarAlimentos(req.body);
         const doc = new PDFDocument({ size: [85.6 * 2.83, 54 * 2.83], margin: 0 });
         const fotoBuffer = fotoFile ? fs.readFileSync(fotoFile.path) : null;
-        await dibujarCarnet(doc, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria, fechaExpedicion: req.body.fechaExpedicion, fechaVencimiento: req.body.fechaVencimiento }, fotoBuffer);
+        await dibujarCarnet(doc, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria, fechaExpedicion: req.body.fechaExpedicion, fechaVencimiento: req.body.fechaVencimiento, codigo }, fotoBuffer);
         const pdfBuffer = await pdfDocABuffer(doc);
 
         const fileName = `Carnet_${nombre.replace(/\s/g, '_')}_${numeroDocumento}.pdf`;
@@ -390,15 +417,18 @@ const enviarDocumentosController = async (req, res) => {
     }
 
     try {
+        // Un solo código para las dos piezas.
+        const codigo = await registrarAlimentos(req.body);
+
         // 1) Certificado (A4)
         const docCert = new PDFDocument({ size: 'A4', margin: 0 });
-        await dibujarCertificado(docCert, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria, fechaExpedicion: req.body.fechaExpedicion });
+        await dibujarCertificado(docCert, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria, fechaExpedicion: req.body.fechaExpedicion, codigo });
         const certBuffer = await pdfDocABuffer(docCert);
 
         // 2) Carnet (tarjeta)
         const docCarnet = new PDFDocument({ size: [85.6 * 2.83, 54 * 2.83], margin: 0 });
         const fotoBuffer = fotoFile ? fs.readFileSync(fotoFile.path) : null;
-        await dibujarCarnet(docCarnet, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria, fechaExpedicion: req.body.fechaExpedicion, fechaVencimiento: req.body.fechaVencimiento }, fotoBuffer);
+        await dibujarCarnet(docCarnet, { nombre, numeroDocumento, tipoDocumento, intensidadHoraria, fechaExpedicion: req.body.fechaExpedicion, fechaVencimiento: req.body.fechaVencimiento, codigo }, fotoBuffer);
         const carnetBuffer = await pdfDocABuffer(docCarnet);
 
         const certFileName   = `Certificado_${nombre.replace(/\s/g, '_')}_${numeroDocumento}.pdf`;

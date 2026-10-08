@@ -19,7 +19,13 @@ import {
     formatFechaDDMMYYYY,
     partesFechaLarga,
     ajustarAUnaLinea,
+    dibujarQrConCodigo,
 } from '../utils/pdfHelpers.js';
+import {
+    PLANTILLA_ACREDITACION,
+    registrarDocumento,
+    urlVerificacion,
+} from '../services/documentosEmitidos.js';
 import { plantillaCorreoDocumentos } from '../utils/correoDocumentos.js';
 import { enviarCorreoConAdjuntos, pdfDocABuffer } from '../services/mailService.js';
 
@@ -31,14 +37,13 @@ const IMG = (nombre) => path.join(__dirname, '..', 'imagenes', nombre);
 const INSTITUCION = {
     nombre: 'ALIANZA CAPACITARTE',
     nit: '1017174588-8',
-    // Libro de constancias vigente. El folio ya no se lleva a mano: se genera
-    // automático (UUID) por acreditación, así que esto cambia rara vez.
+    // Libro de constancias vigente. El folio ya no se lleva a mano: es el código
+    // de verificación de la acreditación, así que esto cambia rara vez.
     libro: '010',
     representante: 'Sandra Milena Mazo',
     telefono: '3012307470',
     correo: 'alianzapacitarte@gmail.com',
     ciudad: 'Medellín',
-    urlVerificacion: 'https://www.alianzacapacitarte.com/verificacion.html',
 };
 
 const MARCO_LEGAL = 'EN CUMPLIMIENTO CON LOS REQUISITOS LEGALES ESTABLECIDOS EN LOS ARTICULO 2, 6, 8 DEL DECRETO 1075 DE MAYO 26 DE 2015';
@@ -158,6 +163,10 @@ const dibujarDiploma = async (doc, datos) => {
     // Firma y sello
     doc.image(fs.readFileSync(IMG('firma.png')), 280, 423, { width: 152, height: 56 });
     doc.image(fs.readFileSync(IMG('sello.png')), 513, 424, { width: 86, height: 86 });
+
+    // QR de verificación a la izquierda, haciendo espejo con el sello.
+    const qr = await QRCode.toDataURL(urlVerificacion(datos.codigo), { errorCorrectionLevel: 'H', margin: 1, scale: 4 });
+    dibujarQrConCodigo(doc, { qrImage: qr, codigo: datos.codigo, x: 128, y: 418, size: 60, fontSize: 6.5 });
 
     doc.font('Helvetica-Bold').fontSize(14).fillColor('black')
         .text(`${INSTITUCION.representante} NIT ${INSTITUCION.nit}`, 44, 476, { width: 650, align: 'center' })
@@ -325,8 +334,8 @@ const dibujarConstancia = async (doc, datos) => {
     // Sello a la izquierda y QR de verificación a la derecha
     doc.image(fs.readFileSync(IMG('sello.png')), MX, yFirma + 6, { width: 78, height: 78 });
 
-    const qr = await QRCode.toDataURL(INSTITUCION.urlVerificacion, { errorCorrectionLevel: 'H', margin: 1, scale: 4 });
-    doc.image(qr, W - MX - 74, yFirma + 6, { width: 74 });
+    const qr = await QRCode.toDataURL(urlVerificacion(datos.codigo), { errorCorrectionLevel: 'H', margin: 1, scale: 4 });
+    dibujarQrConCodigo(doc, { qrImage: qr, codigo: datos.codigo, x: W - MX - 74, y: yFirma - 4, size: 74, fontSize: 7 });
     doc.font('Helvetica').fontSize(6.5).fillColor('#6b7280')
         .text('Verifica este documento', W - MX - 90, yFirma + 84, { width: 90, align: 'center' });
 
@@ -349,13 +358,29 @@ const validar = (body) => {
     return faltan.length ? `Faltan datos obligatorios: ${faltan.join(', ')}.` : null;
 };
 
-// Folio automático: identificador único e irrepetible de la acreditación.
-// Se genera aquí (no lo escribe el usuario) para que no haya folios repetidos
-// ni saltados. El diploma y el certificado de una misma acreditación comparten
-// folio, por eso se genera UNA vez por petición y no por pieza.
-const generarFolio = () => randomUUID().toUpperCase();
+// Folio automático = código de verificación de la acreditación. Se registra en
+// documentos_emitidos (no lo escribe el usuario) y va impreso debajo del QR, que
+// lleva a la página pública de verificación. El diploma y el certificado de una
+// misma acreditación comparten folio, por eso se pide UNA vez por petición.
+// Regenerar la misma acreditación (persona + curso + fecha) reutiliza el folio.
+// Si el registro falla, el documento sale igual con un UUID como folio y el QR
+// genérico (codigo = null), como antes de existir el registro.
+const asignarFolio = async (body) => {
+    const codigo = await registrarDocumento({
+        plantilla: PLANTILLA_ACREDITACION,
+        nombre: body.nombre,
+        tipoDocumento: body.tipoDocumento,
+        numeroDocumento: body.numeroDocumento,
+        curso: body.curso,
+        intensidadHoraria: body.intensidadHoraria,
+        fechaInicio: body.fechaInicio,
+        fechaFin: body.fechaFin,
+        fechaExpedicion: body.fechaExpedicion,
+    });
+    return { folio: codigo || randomUUID().toUpperCase(), codigo };
+};
 
-const datosDesde = (body, folio = generarFolio()) => ({
+const datosDesde = (body, { folio, codigo }) => ({
     nombre: body.nombre,
     numeroDocumento: body.numeroDocumento,
     tipoDocumento: body.tipoDocumento,
@@ -366,6 +391,7 @@ const datosDesde = (body, folio = generarFolio()) => ({
     fechaExpedicion: body.fechaExpedicion,
     libro: body.libro || INSTITUCION.libro,
     folio,
+    codigo,
 });
 
 // Pinta la acreditación completa sobre un doc PDFKit ya creado en tamaño carta
@@ -386,7 +412,8 @@ const generarDiplomaController = async (req, res) => {
 
     try {
         const { nombre, numeroDocumento } = req.body;
-        const folio = generarFolio();
+        const asignado = await asignarFolio(req.body);
+        const { folio } = asignado;
 
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `attachment; filename="Diploma_${String(nombre).replace(/\s/g, '_')}_${numeroDocumento}.pdf"`);
@@ -394,7 +421,7 @@ const generarDiplomaController = async (req, res) => {
 
         const doc = new PDFDocument({ size: [720, 540], margin: 0 });
         doc.pipe(res);
-        await dibujarDiploma(doc, datosDesde(req.body, folio));
+        await dibujarDiploma(doc, datosDesde(req.body, asignado));
         doc.end();
 
         console.log(`Diploma PDF generado para: ${nombre}`);
@@ -412,7 +439,8 @@ const generarConstanciaController = async (req, res) => {
 
     try {
         const { nombre, numeroDocumento } = req.body;
-        const folio = generarFolio();
+        const asignado = await asignarFolio(req.body);
+        const { folio } = asignado;
 
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `attachment; filename="Certificado_${String(nombre).replace(/\s/g, '_')}_${numeroDocumento}.pdf"`);
@@ -420,7 +448,7 @@ const generarConstanciaController = async (req, res) => {
 
         const doc = new PDFDocument({ size: 'A4', margin: 0 });
         doc.pipe(res);
-        await dibujarConstancia(doc, datosDesde(req.body, folio));
+        await dibujarConstancia(doc, datosDesde(req.body, asignado));
         doc.end();
 
         console.log(`Constancia PDF generada para: ${nombre}`);
@@ -446,8 +474,9 @@ const generarAcreditacionController = async (req, res) => {
 
     try {
         const { nombre, numeroDocumento } = req.body;
-        const folio = generarFolio();
-        const datos = datosDesde(req.body, folio);
+        const asignado = await asignarFolio(req.body);
+        const { folio } = asignado;
+        const datos = datosDesde(req.body, asignado);
 
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `attachment; filename="${nombreArchivoAcreditacion(nombre, numeroDocumento)}"`);
@@ -522,8 +551,9 @@ const enviarAcreditacionController = async (req, res) => {
     }
 
     try {
-        const folio = generarFolio();
-        const datos = datosDesde(req.body, folio);
+        const asignado = await asignarFolio(req.body);
+        const { folio } = asignado;
+        const datos = datosDesde(req.body, asignado);
 
         const doc = new PDFDocument({ size: [720, 540], margin: 0 });
         await dibujarAcreditacion(doc, datos);

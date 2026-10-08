@@ -12,6 +12,10 @@ import {
 } from '../controllers/certificadoController.js';
 
 import { generarCertificadoPDF } from '../controllers/certificadosPdfController.js';
+import {
+    verificarPorCodigo,
+    verificarPorNumeroDocumento,
+} from '../controllers/verificacionController.js';
 
 import {
     generarDiplomaController,
@@ -67,5 +71,10 @@ router.post(
     upload.single('foto'),
     enviarDocumentosController
 );
+
+// --- Verificación pública (página verificacion.html de Alianza Capacitarte) ---
+// Por el código impreso debajo del QR, o todos los de un número de documento.
+router.get('/verificar-documento', verificarPorNumeroDocumento);
+router.get('/verificar-documento/:codigo', verificarPorCodigo);
 
 export default router;

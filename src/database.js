@@ -389,6 +389,40 @@ const runMigrations = async () => {
   } catch (err) {
     console.error("Error en migración programa_nombre_por_negocio:", err);
   }
+
+  // Registro de documentos emitidos (certificado/carnet de alimentos, diploma +
+  // certificado de acreditación) con su código de verificación, que va impreso
+  // debajo del QR y se consulta en la página pública de verificación.
+  // Ver services/documentosEmitidos.js.
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS public.documentos_emitidos (
+        codigo             VARCHAR(9)   PRIMARY KEY,
+        plantilla          VARCHAR(30)  NOT NULL,
+        nombre             VARCHAR(255) NOT NULL,
+        tipo_documento     VARCHAR(40),
+        numero_documento   VARCHAR(40)  NOT NULL,
+        curso              VARCHAR(255),
+        curso_clave        VARCHAR(255) NOT NULL DEFAULT '',
+        intensidad_horaria VARCHAR(20),
+        fecha_inicio       DATE,
+        fecha_fin          DATE,
+        fecha_expedicion   DATE         NOT NULL,
+        fecha_vencimiento  DATE,
+        created_at         TIMESTAMP    NOT NULL DEFAULT NOW(),
+        updated_at         TIMESTAMP    NOT NULL DEFAULT NOW(),
+        CONSTRAINT uq_documentos_emitidos_acreditacion
+          UNIQUE (plantilla, numero_documento, curso_clave, fecha_expedicion)
+      );
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_documentos_emitidos_numero
+        ON public.documentos_emitidos (numero_documento);
+    `);
+    console.log("Migración documentos_emitidos aplicada correctamente.");
+  } catch (err) {
+    console.error("Error en migración documentos_emitidos:", err);
+  }
 };
 
 testConnection();

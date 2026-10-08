@@ -137,3 +137,37 @@ export const ajustarAUnaLinea = (doc, texto, maxWidth, sizeMax = 12, sizeMin = 8
 
     return { texto, size };
 };
+
+// ──────────────────────────────────────────────────────────────────────────
+// QR de verificación
+// ──────────────────────────────────────────────────────────────────────────
+
+// Dibuja el QR de verificación y, debajo, el código del documento en el sistema
+// sobre una franja blanca (las plantillas tienen fondos de color justo ahí y el
+// texto oscuro se perdería). Sin código, dibuja solo el QR.
+//   - qrImage: data URL del QR ya generado (QRCode.toDataURL)
+//   - x, y, size: posición y lado del QR
+//   - fontSize: tamaño del código; el rótulo "Código" va un poco más pequeño
+export const dibujarQrConCodigo = (doc, { qrImage, codigo, x, y, size, fontSize = 7 }) => {
+    doc.image(qrImage, x, y, { width: size });
+    if (!codigo) return;
+
+    const texto = `Código: ${codigo}`;
+    doc.font('Helvetica-Bold').fontSize(fontSize);
+    const ancho = Math.max(size, doc.widthOfString(texto) + fontSize * 1.2);
+    const alto = fontSize * 1.5;
+    const xCaja = x + size / 2 - ancho / 2;
+    const yCaja = y + size + fontSize * 0.15;
+
+    doc.save()
+        .roundedRect(xCaja, yCaja, ancho, alto, fontSize * 0.3)
+        .fillColor('#ffffff', 0.92)
+        .fill()
+        .restore();
+    doc.fillColor('#111827')
+        .text(texto, xCaja, yCaja + (alto - fontSize) / 2 + fontSize * 0.08, {
+            width: ancho,
+            align: 'center',
+            lineBreak: false,
+        });
+};
